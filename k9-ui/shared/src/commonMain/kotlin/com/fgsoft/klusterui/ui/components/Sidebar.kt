@@ -39,6 +39,7 @@ import com.fgsoft.klusterui.model.KubeContext
 import com.fgsoft.klusterui.model.KubeResource
 import com.fgsoft.klusterui.model.NamespaceInfo
 import com.fgsoft.klusterui.model.ResourceType
+import com.fgsoft.klusterui.model.SubContext
 import com.fgsoft.klusterui.ui.AppViewModel
 
 private val resourceTypesInTree = ResourceType.entries.filter { it !in setOf(ResourceType.NAMESPACES, ResourceType.NODES) }
@@ -52,7 +53,6 @@ fun Sidebar(
         modifier =
             modifier
                 .fillMaxHeight()
-                .width(280.dp)
                 .background(MaterialTheme.colorScheme.surfaceVariant)
                 .verticalScroll(rememberScrollState())
                 .padding(8.dp),
@@ -67,7 +67,7 @@ fun Sidebar(
             return
         }
 
-        viewModel.activeContexts.forEach { context ->
+        for (context in viewModel.activeContexts) {
             ContextAccordion(context, viewModel)
         }
     }
@@ -163,9 +163,54 @@ private fun ContextAccordion(
                     modifier = Modifier.padding(start = 28.dp, top = 4.dp, bottom = 4.dp),
                 )
             } else {
-                namespaces.forEach { ns ->
+                val subContexts = viewModel.subContextsByContextId[context.id] ?: emptyList()
+                val grouped = viewModel.groupNamespacesBySubContext(context.id, namespaces)
+
+                val favoriteNs = viewModel.getFavoriteNamespacesForContext(context.id)
+                if (favoriteNs.isNotEmpty()) {
+                    val favNamespaces = namespaces.filter { it.name in favoriteNs }
+                    val favMatches =
+                        viewModel.treeMatchesSearch("Favorites") ||
+                            favNamespaces.any { viewModel.treeMatchesSearch(it.name) } ||
+                            viewModel.searchQuery.isBlank()
+                    if (favMatches) {
+                        val favKey = "${context.id}/-1"
+                        val favExpanded = favKey in viewModel.expandedSubContexts
+                        FavoritesSection(
+                            context = context,
+                            viewModel = viewModel,
+                            isExpanded = favExpanded,
+                            key = favKey,
+                            namespaces = favNamespaces,
+                        )
+                    }
+                }
+
+                for (sc in subContexts) {
+                    val matched = grouped[sc.id] ?: continue
+                    val scKey = "${context.id}/${sc.id}"
+                    val scExpanded = scKey in viewModel.expandedSubContexts
+                    val scMatches =
+                        viewModel.treeMatchesSearch(sc.displayName) ||
+                            matched.any { viewModel.treeMatchesSearch(it.name) } ||
+                            viewModel.searchQuery.isBlank()
+
+                    if (scMatches) {
+                        SubContextFolder(
+                            subContext = sc,
+                            context = context,
+                            viewModel = viewModel,
+                            isExpanded = scExpanded,
+                            key = scKey,
+                            namespaces = matched,
+                        )
+                    }
+                }
+
+                val unmatched = grouped[null] ?: emptyList()
+                for (ns in unmatched) {
                     val nsMatches = viewModel.treeMatchesSearch(ns.name) || viewModel.searchQuery.isBlank()
-                    if (!nsMatches) return@forEach
+                    if (!nsMatches) continue
 
                     NamespaceItem(
                         namespace = ns,
@@ -189,49 +234,95 @@ private fun NamespaceItem(
     val nsResources = viewModel.contextResources[key] ?: emptyMap()
     val hasResources = nsResources.isNotEmpty()
     val totalCount = nsResources.values.sumOf { it.size }
+    var showNsMenu by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .padding(start = 24.dp)
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(
-                        if (isSelected) {
-                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
-                        } else {
-                            Color.Transparent
-                        },
-                    ).clickable {
-                        viewModel.toggleNamespaceExpanded(context.name, namespace.name)
-                    }.padding(horizontal = 8.dp, vertical = 5.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                if (isSelected) "▾" else "▸",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.width(6.dp))
-            Text(
-                namespace.name,
-                style = MaterialTheme.typography.bodyMedium,
-                color =
-                    if (isSelected) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-            if (!isSelected && totalCount > 0) {
+        Box {
+            Row(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(start = 24.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(
+                            if (isSelected) {
+                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+                            } else {
+                                Color.Transparent
+                            },
+                        ).clickable {
+                            viewModel.toggleNamespaceExpanded(context.name, namespace.name)
+                        }.onPointerEvent(PointerEventType.Press) { event ->
+                            if (event.button == androidx.compose.ui.input.pointer.PointerButton.Secondary) {
+                                showNsMenu = true
+                            }
+                        }.padding(horizontal = 8.dp, vertical = 5.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Text(
-                    "$totalCount",
+                    if (isSelected) "▾" else "▸",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    namespace.name,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color =
+                        if (isSelected) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    if (viewModel.isFavorite(context.id, namespace.name)) "\u2605" else "\u2606",
+                    color =
+                        if (viewModel.isFavorite(context.id, namespace.name)) {
+                            Color(context.color)
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier =
+                        Modifier
+                            .clickable {
+                                viewModel.toggleFavorite(context.id, namespace.name)
+                            }.padding(horizontal = 4.dp),
+                )
+                Text(
+                    "\uD83D\uDCC4",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier =
+                        Modifier
+                            .clickable {
+                                viewModel.openLogsTab(context.name, context.context, namespace.name)
+                                viewModel.currentView = AppView.LOGS
+                            }.padding(horizontal = 4.dp),
+                )
+                if (!isSelected && totalCount > 0) {
+                    Text(
+                        "$totalCount",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            DropdownMenu(
+                expanded = showNsMenu,
+                onDismissRequest = { showNsMenu = false },
+            ) {
+                DropdownMenuItem(
+                    text = { Text("View Logs") },
+                    onClick = {
+                        showNsMenu = false
+                        viewModel.openLogsTab(context.name, context.context, namespace.name)
+                        viewModel.currentView = AppView.LOGS
+                    },
                 )
             }
         }
@@ -273,6 +364,137 @@ private fun NamespaceItem(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FavoritesSection(
+    context: KubeContext,
+    viewModel: AppViewModel,
+    isExpanded: Boolean,
+    key: String,
+    namespaces: List<NamespaceInfo>,
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(start = 24.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .clickable { viewModel.toggleSubContextExpanded(context.id, -1) }
+                    .padding(horizontal = 8.dp, vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                if (isExpanded) "▾" else "▸",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                "\u2605",
+                color = Color(context.color),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Spacer(Modifier.width(4.dp))
+            Text(
+                "Favorites",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            if (!isExpanded) {
+                Text(
+                    "${namespaces.size}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+
+        if (isExpanded) {
+            for (ns in namespaces) {
+                val nsMatches = viewModel.treeMatchesSearch(ns.name) || viewModel.searchQuery.isBlank()
+                if (!nsMatches) continue
+                NamespaceItem(
+                    namespace = ns,
+                    context = context,
+                    viewModel = viewModel,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SubContextFolder(
+    subContext: SubContext,
+    context: KubeContext,
+    viewModel: AppViewModel,
+    isExpanded: Boolean,
+    key: String,
+    namespaces: List<NamespaceInfo>,
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(start = 24.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .clickable { viewModel.toggleSubContextExpanded(context.id, subContext.id) }
+                    .padding(horizontal = 8.dp, vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                if (isExpanded) "▾" else "▸",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.width(6.dp))
+            Box(
+                modifier =
+                    Modifier
+                        .size(8.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(Color(context.color).copy(alpha = 0.6f)),
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                subContext.displayName,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            if (!isExpanded) {
+                val totalCount = namespaces.size
+                if (totalCount > 0) {
+                    Text(
+                        "$totalCount",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+
+        if (isExpanded) {
+            for (ns in namespaces) {
+                val nsMatches = viewModel.treeMatchesSearch(ns.name) || viewModel.searchQuery.isBlank()
+                if (!nsMatches) continue
+
+                NamespaceItem(
+                    namespace = ns,
+                    context = context,
+                    viewModel = viewModel,
+                )
             }
         }
     }

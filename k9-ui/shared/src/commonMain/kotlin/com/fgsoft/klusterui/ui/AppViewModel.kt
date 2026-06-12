@@ -5,12 +5,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.fgsoft.klusterui.AppDependencies
 import com.fgsoft.klusterui.model.AppView
+import com.fgsoft.klusterui.model.FavoriteNamespace
 import com.fgsoft.klusterui.model.KubeContext
 import com.fgsoft.klusterui.model.KubeResource
 import com.fgsoft.klusterui.model.NamespaceInfo
 import com.fgsoft.klusterui.model.PortForwardConfig
 import com.fgsoft.klusterui.model.PortForwardProcess
 import com.fgsoft.klusterui.model.ResourceType
+import com.fgsoft.klusterui.model.SubContext
 import com.fgsoft.klusterui.model.currentTimeMillis
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -39,8 +41,13 @@ class AppViewModel(
     var contextResources: Map<String, Map<ResourceType, List<KubeResource>>> by mutableStateOf(emptyMap())
         private set
 
+    var subContextsByContextId: Map<Long, List<SubContext>> by mutableStateOf(emptyMap())
+        private set
+    var favoriteNamespacesByContextId: Map<Long, Set<String>> by mutableStateOf(emptyMap())
+        private set
     var expandedContexts: Set<Long> by mutableStateOf(emptySet())
     var expandedNamespaces: Set<String> by mutableStateOf(emptySet())
+    var expandedSubContexts: Set<String> by mutableStateOf(emptySet())
 
     var selectedNamespace: String by mutableStateOf("")
     var selectedResourceType: ResourceType by mutableStateOf(ResourceType.PODS)
@@ -64,6 +71,18 @@ class AppViewModel(
         private set
     var podMetrics: String by mutableStateOf("")
         private set
+
+    var logTabs: List<LogTabState> by mutableStateOf(emptyList())
+        private set
+    var activeLogTabIndex: Int by mutableStateOf(-1)
+    var logSearchQuery: String by mutableStateOf("")
+    var logSearchMatches: List<Int> by mutableStateOf(emptyList())
+        internal set
+    var activeLogSearchMatchIndex: Int by mutableStateOf(-1)
+    var logFontSize: Float by mutableStateOf(13f)
+    var logAutoScroll: Boolean by mutableStateOf(true)
+    var logWrapText: Boolean by mutableStateOf(true)
+    var logHighlightLevel: Boolean by mutableStateOf(true)
 
     var showDeleteContextDialog: KubeContext? by mutableStateOf(null)
     var showPortForwardDialog: KubeResource? by mutableStateOf(null)
@@ -149,10 +168,41 @@ class AppViewModel(
     fun loadContexts() {
         contexts = deps.contextRepository.getAll()
         activeContexts = deps.contextRepository.getAllActive()
+        loadSubContexts()
+        loadFavorites()
         activeContexts.forEach { loadContextNamespaces(it) }
         loadPortForwardConfigs()
         refreshActiveProcesses()
     }
+
+    private fun loadSubContexts() {
+        val all = deps.contextRepository.getAllSubContexts()
+        subContextsByContextId = all.groupBy { it.contextId }
+    }
+
+    private fun loadFavorites() {
+        val all = deps.contextRepository.getAllFavoriteNamespaces()
+        favoriteNamespacesByContextId = all.groupBy({ it.contextId }, { it.namespace }).mapValues { it.value.toSet() }
+    }
+
+    fun toggleFavorite(
+        contextId: Long,
+        namespace: String,
+    ) {
+        if (isFavorite(contextId, namespace)) {
+            deps.contextRepository.removeFavoriteNamespace(contextId, namespace)
+        } else {
+            deps.contextRepository.addFavoriteNamespace(FavoriteNamespace(contextId = contextId, namespace = namespace))
+        }
+        loadFavorites()
+    }
+
+    fun isFavorite(
+        contextId: Long,
+        namespace: String,
+    ): Boolean = favoriteNamespacesByContextId[contextId]?.contains(namespace) ?: false
+
+    fun getFavoriteNamespacesForContext(contextId: Long): Set<String> = favoriteNamespacesByContextId[contextId] ?: emptySet()
 
     fun activateContext(context: KubeContext) {
         deps.contextRepository.setActive(context.id)
@@ -203,6 +253,51 @@ class AppViewModel(
                 loadContextResources(ctx, namespaceName)
             }
         }
+    }
+
+    fun toggleSubContextExpanded(
+        contextId: Long,
+        subContextId: Long,
+    ) {
+        val key = "$contextId/$subContextId"
+        expandedSubContexts =
+            if (key in expandedSubContexts) {
+                expandedSubContexts - key
+            } else {
+                expandedSubContexts + key
+            }
+    }
+
+    fun groupNamespacesBySubContext(
+        contextId: Long,
+        namespaces: List<NamespaceInfo>,
+    ): Map<Long?, List<NamespaceInfo>> {
+        val subContexts = subContextsByContextId[contextId] ?: return mapOf(null to namespaces)
+        val result = mutableMapOf<Long?, MutableList<NamespaceInfo>>()
+        val matchedNs = mutableSetOf<String>()
+
+        subContexts.forEach { sc ->
+            val matched =
+                namespaces.filter { ns ->
+                    ns.name !in matchedNs &&
+                        try {
+                            Regex(sc.regexPattern).matches(ns.name)
+                        } catch (_: Exception) {
+                            false
+                        }
+                }
+            if (matched.isNotEmpty()) {
+                result[sc.id] = matched.toMutableList()
+                matchedNs.addAll(matched.map { it.name })
+            }
+        }
+
+        val unmatched = namespaces.filterNot { it.name in matchedNs }
+        if (unmatched.isNotEmpty()) {
+            result[null] = unmatched.toMutableList()
+        }
+
+        return result
     }
 
     fun selectResourceAndNamespace(resource: KubeResource) {
@@ -264,7 +359,16 @@ class AppViewModel(
     }
 
     fun addContext(context: KubeContext) {
-        deps.contextRepository.create(context)
+        val id = deps.contextRepository.create(context)
+        loadContexts()
+    }
+
+    fun addContext(
+        context: KubeContext,
+        subDefs: List<Pair<String, String>>,
+    ) {
+        val id = deps.contextRepository.create(context)
+        syncSubContexts(id, subDefs)
         loadContexts()
     }
 
@@ -273,9 +377,32 @@ class AppViewModel(
         loadContexts()
     }
 
+    fun updateContext(
+        context: KubeContext,
+        subDefs: List<Pair<String, String>>,
+    ) {
+        deps.contextRepository.update(context)
+        syncSubContexts(context.id, subDefs)
+        loadContexts()
+    }
+
     fun deleteContext(id: Long) {
         deps.contextRepository.delete(id)
         loadContexts()
+    }
+
+    private fun syncSubContexts(
+        contextId: Long,
+        subDefs: List<Pair<String, String>>,
+    ) {
+        deps.contextRepository.deleteSubContextsForContext(contextId)
+        subDefs.forEach { (regex, displayName) ->
+            if (regex.isNotBlank() && displayName.isNotBlank()) {
+                deps.contextRepository.createSubContext(
+                    SubContext(contextId = contextId, regexPattern = regex.trim(), displayName = displayName.trim()),
+                )
+            }
+        }
     }
 
     private fun loadContextNamespaces(ctx: KubeContext) {
@@ -515,4 +642,116 @@ class AppViewModel(
                         it.status.contains(searchQuery, ignoreCase = true)
                 }
             }
+
+    fun openLogsTab(
+        contextName: String,
+        kubectlContext: String,
+        namespace: String,
+    ) {
+        val existingIndex = logTabs.indexOfFirst { it.kubectlContext == kubectlContext && it.namespace == namespace }
+        if (existingIndex >= 0) {
+            activeLogTabIndex = existingIndex
+            return
+        }
+        val tab = LogTabState(contextName = contextName, kubectlContext = kubectlContext, namespace = namespace)
+        logTabs = logTabs + tab
+        activeLogTabIndex = logTabs.size - 1
+        loadLogsForTab(activeLogTabIndex)
+    }
+
+    fun closeLogsTab(index: Int) {
+        if (index < 0 || index >= logTabs.size) return
+        logTabs = logTabs.toMutableList().also { it.removeAt(index) }
+        activeLogTabIndex =
+            if (logTabs.isEmpty()) {
+                -1
+            } else if (index >= logTabs.size) {
+                logTabs.size - 1
+            } else {
+                index.coerceIn(0, logTabs.size - 1)
+            }
+    }
+
+    fun setActiveLogTab(index: Int) {
+        activeLogTabIndex = index.coerceIn(0, logTabs.size - 1)
+        if (logTabs.getOrNull(activeLogTabIndex)?.logContent?.isEmpty() != false) {
+            loadLogsForTab(activeLogTabIndex)
+        }
+    }
+
+    fun refreshActiveLogTab() {
+        val idx = activeLogTabIndex
+        if (idx >= 0 && idx < logTabs.size) {
+            loadLogsForTab(idx)
+        }
+    }
+
+    private fun loadLogsForTab(index: Int) {
+        val tab = logTabs.getOrNull(index) ?: return
+        if (tab.isLoading) return
+        logTabs = logTabs.toMutableList().also { it[index] = tab.copy(isLoading = true) }
+        scope.launch {
+            try {
+                val content = deps.kubectlClient.getNamespacePodLogs(tab.kubectlContext, tab.namespace)
+                logTabs = logTabs.toMutableList().also { it[index] = tab.copy(logContent = content, isLoading = false) }
+                if (index == activeLogTabIndex) {
+                    updateLogSearchMatches()
+                }
+            } catch (_: Exception) {
+                logTabs =
+                    logTabs.toMutableList().also {
+                        it[index] = tab.copy(logContent = "Error loading logs", isLoading = false)
+                    }
+            }
+        }
+    }
+
+    fun updateLogSearchMatches() {
+        val query = logSearchQuery
+        val content = logTabs.getOrNull(activeLogTabIndex)?.logContent ?: ""
+        if (query.isBlank()) {
+            logSearchMatches = emptyList()
+            activeLogSearchMatchIndex = -1
+            return
+        }
+        val matches = mutableListOf<Int>()
+        var startIndex = 0
+        while (true) {
+            val idx = content.indexOf(query, startIndex, ignoreCase = true)
+            if (idx < 0) break
+            matches.add(idx)
+            startIndex = idx + 1
+        }
+        logSearchMatches = matches
+        activeLogSearchMatchIndex = if (matches.isNotEmpty()) 0 else -1
+    }
+
+    fun searchLogsNext() {
+        if (logSearchMatches.isEmpty()) {
+            updateLogSearchMatches()
+            return
+        }
+        activeLogSearchMatchIndex = (activeLogSearchMatchIndex + 1) % logSearchMatches.size
+    }
+
+    fun searchLogsPrev() {
+        if (logSearchMatches.isEmpty()) {
+            updateLogSearchMatches()
+            return
+        }
+        activeLogSearchMatchIndex =
+            if (activeLogSearchMatchIndex - 1 < 0) {
+                logSearchMatches.size - 1
+            } else {
+                activeLogSearchMatchIndex - 1
+            }
+    }
 }
+
+data class LogTabState(
+    val contextName: String,
+    val kubectlContext: String,
+    val namespace: String,
+    val logContent: String = "",
+    val isLoading: Boolean = false,
+)

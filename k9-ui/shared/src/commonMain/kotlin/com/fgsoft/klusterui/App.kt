@@ -1,20 +1,32 @@
 package com.fgsoft.klusterui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.fgsoft.klusterui.model.AppView
 import com.fgsoft.klusterui.model.KubeResource
@@ -23,6 +35,7 @@ import com.fgsoft.klusterui.ui.AppViewModel
 import com.fgsoft.klusterui.ui.components.Sidebar
 import com.fgsoft.klusterui.ui.components.TopBar
 import com.fgsoft.klusterui.ui.pages.ContextPage
+import com.fgsoft.klusterui.ui.pages.LogsPage
 import com.fgsoft.klusterui.ui.pages.PortForwardPage
 import com.fgsoft.klusterui.ui.pages.ResourceDetailPage
 import com.fgsoft.klusterui.ui.theme.KlusterUiTheme
@@ -32,21 +45,48 @@ fun App(deps: AppDependencies) {
     val viewModel = remember { AppViewModel(deps) }
 
     KlusterUiTheme(darkTheme = viewModel.isDarkTheme) {
+        var sidebarWidthDp by remember { mutableFloatStateOf(280f) }
+        val density = LocalDensity.current
+
         Column(modifier = Modifier.fillMaxSize()) {
             TopBar(viewModel)
             Row(modifier = Modifier.fillMaxSize().weight(1f)) {
                 when (viewModel.currentView) {
                     AppView.TREE_VIEW -> {
-                        Sidebar(viewModel)
-                        ResourceDetailPage(viewModel, modifier = Modifier.fillMaxSize())
+                        Sidebar(viewModel, Modifier.width(sidebarWidthDp.dp))
+
+                        Box(
+                            modifier =
+                                Modifier
+                                    .width(4.dp)
+                                    .fillMaxHeight()
+                                    .background(MaterialTheme.colorScheme.outlineVariant)
+                                    .then(
+                                        cursorHorizontalResize()?.let { icon ->
+                                            Modifier.pointerHoverIcon(icon)
+                                        } ?: Modifier,
+                                    ).pointerInput(Unit) {
+                                        detectHorizontalDragGestures { _, dragAmount ->
+                                            sidebarWidthDp =
+                                                (sidebarWidthDp + dragAmount / density.density)
+                                                    .coerceIn(180f, 500f)
+                                        }
+                                    },
+                        )
+
+                        ResourceDetailPage(viewModel, modifier = Modifier.weight(1f).fillMaxHeight())
                     }
 
                     AppView.CONTEXT_SETTINGS -> {
-                        ContextPage(viewModel, modifier = Modifier.fillMaxSize())
+                        ContextPage(viewModel, modifier = Modifier.weight(1f).fillMaxHeight())
                     }
 
                     AppView.PORT_FORWARD -> {
-                        PortForwardPage(viewModel, modifier = Modifier.fillMaxSize())
+                        PortForwardPage(viewModel, modifier = Modifier.weight(1f).fillMaxHeight())
+                    }
+
+                    AppView.LOGS -> {
+                        LogsPage(viewModel, modifier = Modifier.weight(1f).fillMaxHeight())
                     }
                 }
             }

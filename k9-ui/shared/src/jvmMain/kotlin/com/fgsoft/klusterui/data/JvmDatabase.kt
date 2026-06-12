@@ -1,8 +1,10 @@
 package com.fgsoft.klusterui.data
 
+import com.fgsoft.klusterui.model.FavoriteNamespace
 import com.fgsoft.klusterui.model.KubeContext
 import com.fgsoft.klusterui.model.PortForwardConfig
 import com.fgsoft.klusterui.model.PortForwardProcess
+import com.fgsoft.klusterui.model.SubContext
 import java.sql.Connection
 import java.sql.DriverManager
 
@@ -13,6 +15,7 @@ class JvmDatabase(
 
     override fun connect() {
         connection = DriverManager.getConnection("jdbc:sqlite:$dbPath")
+        connection?.createStatement()?.execute("PRAGMA foreign_keys = ON")
         createTables()
     }
 
@@ -67,6 +70,30 @@ class JvmDatabase(
                     is_running INTEGER NOT NULL DEFAULT 0,
                     started_at INTEGER NOT NULL DEFAULT 0,
                     FOREIGN KEY (config_id) REFERENCES port_forward_configs(id) ON DELETE CASCADE
+                )
+                """.trimIndent(),
+            )
+
+            stmt.executeUpdate(
+                """
+                CREATE TABLE IF NOT EXISTS sub_contexts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    context_id INTEGER NOT NULL,
+                    regex_pattern TEXT NOT NULL,
+                    display_name TEXT NOT NULL,
+                    FOREIGN KEY (context_id) REFERENCES contexts(id) ON DELETE CASCADE
+                )
+                """.trimIndent(),
+            )
+
+            stmt.executeUpdate(
+                """
+                CREATE TABLE IF NOT EXISTS favorite_namespaces (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    context_id INTEGER NOT NULL,
+                    namespace TEXT NOT NULL,
+                    FOREIGN KEY (context_id) REFERENCES contexts(id) ON DELETE CASCADE,
+                    UNIQUE(context_id, namespace)
                 )
                 """.trimIndent(),
             )
@@ -152,7 +179,16 @@ class JvmDatabase(
     }
 
     override fun deleteContext(id: Long) {
-        requireConnection().prepareStatement("DELETE FROM contexts WHERE id = ?").use { stmt ->
+        val conn = requireConnection()
+        conn.prepareStatement("DELETE FROM sub_contexts WHERE context_id = ?").use { stmt ->
+            stmt.setLong(1, id)
+            stmt.executeUpdate()
+        }
+        conn.prepareStatement("DELETE FROM favorite_namespaces WHERE context_id = ?").use { stmt ->
+            stmt.setLong(1, id)
+            stmt.executeUpdate()
+        }
+        conn.prepareStatement("DELETE FROM contexts WHERE id = ?").use { stmt ->
             stmt.setLong(1, id)
             stmt.executeUpdate()
         }
@@ -394,4 +430,171 @@ class JvmDatabase(
             stmt.executeUpdate()
         }
     }
+
+    override fun getAllSubContexts(): List<SubContext> =
+        requireConnection()
+            .prepareStatement(
+                "SELECT id, context_id, regex_pattern, display_name FROM sub_contexts",
+            ).use { stmt ->
+                stmt.executeQuery().use { rs ->
+                    buildList {
+                        while (rs.next()) {
+                            add(
+                                SubContext(
+                                    id = rs.getLong("id"),
+                                    contextId = rs.getLong("context_id"),
+                                    regexPattern = rs.getString("regex_pattern"),
+                                    displayName = rs.getString("display_name"),
+                                ),
+                            )
+                        }
+                    }
+                }
+            }
+
+    override fun getSubContexts(contextId: Long): List<SubContext> =
+        requireConnection()
+            .prepareStatement(
+                "SELECT id, context_id, regex_pattern, display_name FROM sub_contexts WHERE context_id = ?",
+            ).use { stmt ->
+                stmt.setLong(1, contextId)
+                stmt.executeQuery().use { rs ->
+                    buildList {
+                        while (rs.next()) {
+                            add(
+                                SubContext(
+                                    id = rs.getLong("id"),
+                                    contextId = rs.getLong("context_id"),
+                                    regexPattern = rs.getString("regex_pattern"),
+                                    displayName = rs.getString("display_name"),
+                                ),
+                            )
+                        }
+                    }
+                }
+            }
+
+    override fun insertSubContext(subContext: SubContext): Long =
+        requireConnection()
+            .prepareStatement(
+                "INSERT INTO sub_contexts (context_id, regex_pattern, display_name) VALUES (?, ?, ?)",
+            ).use { stmt ->
+                stmt.setLong(1, subContext.contextId)
+                stmt.setString(2, subContext.regexPattern)
+                stmt.setString(3, subContext.displayName)
+                stmt.executeUpdate()
+                stmt.generatedKeys.use { keys ->
+                    if (keys.next()) keys.getLong(1) else -1
+                }
+            }
+
+    override fun updateSubContext(subContext: SubContext) {
+        requireConnection()
+            .prepareStatement(
+                "UPDATE sub_contexts SET context_id = ?, regex_pattern = ?, display_name = ? WHERE id = ?",
+            ).use { stmt ->
+                stmt.setLong(1, subContext.contextId)
+                stmt.setString(2, subContext.regexPattern)
+                stmt.setString(3, subContext.displayName)
+                stmt.setLong(4, subContext.id)
+                stmt.executeUpdate()
+            }
+    }
+
+    override fun deleteSubContext(id: Long) {
+        requireConnection().prepareStatement("DELETE FROM sub_contexts WHERE id = ?").use { stmt ->
+            stmt.setLong(1, id)
+            stmt.executeUpdate()
+        }
+    }
+
+    override fun deleteSubContextsForContext(contextId: Long) {
+        requireConnection().prepareStatement("DELETE FROM sub_contexts WHERE context_id = ?").use { stmt ->
+            stmt.setLong(1, contextId)
+            stmt.executeUpdate()
+        }
+    }
+
+    override fun getAllFavoriteNamespaces(): List<FavoriteNamespace> =
+        requireConnection()
+            .prepareStatement(
+                "SELECT id, context_id, namespace FROM favorite_namespaces",
+            ).use { stmt ->
+                stmt.executeQuery().use { rs ->
+                    buildList {
+                        while (rs.next()) {
+                            add(
+                                FavoriteNamespace(
+                                    id = rs.getLong("id"),
+                                    contextId = rs.getLong("context_id"),
+                                    namespace = rs.getString("namespace"),
+                                ),
+                            )
+                        }
+                    }
+                }
+            }
+
+    override fun getFavoriteNamespaces(contextId: Long): List<FavoriteNamespace> =
+        requireConnection()
+            .prepareStatement(
+                "SELECT id, context_id, namespace FROM favorite_namespaces WHERE context_id = ?",
+            ).use { stmt ->
+                stmt.setLong(1, contextId)
+                stmt.executeQuery().use { rs ->
+                    buildList {
+                        while (rs.next()) {
+                            add(
+                                FavoriteNamespace(
+                                    id = rs.getLong("id"),
+                                    contextId = rs.getLong("context_id"),
+                                    namespace = rs.getString("namespace"),
+                                ),
+                            )
+                        }
+                    }
+                }
+            }
+
+    override fun insertFavoriteNamespace(fav: FavoriteNamespace): Long =
+        requireConnection()
+            .prepareStatement(
+                "INSERT OR IGNORE INTO favorite_namespaces (context_id, namespace) VALUES (?, ?)",
+            ).use { stmt ->
+                stmt.setLong(1, fav.contextId)
+                stmt.setString(2, fav.namespace)
+                stmt.executeUpdate()
+                stmt.generatedKeys.use { keys ->
+                    if (keys.next()) keys.getLong(1) else -1
+                }
+            }
+
+    override fun deleteFavoriteNamespace(
+        contextId: Long,
+        namespace: String,
+    ) {
+        requireConnection()
+            .prepareStatement(
+                "DELETE FROM favorite_namespaces WHERE context_id = ? AND namespace = ?",
+            ).use { stmt ->
+                stmt.setLong(1, contextId)
+                stmt.setString(2, namespace)
+                stmt.executeUpdate()
+            }
+    }
+
+    override fun isFavoriteNamespace(
+        contextId: Long,
+        namespace: String,
+    ): Boolean =
+        requireConnection()
+            .prepareStatement(
+                "SELECT COUNT(*) FROM favorite_namespaces WHERE context_id = ? AND namespace = ?",
+            ).use { stmt ->
+                stmt.setLong(1, contextId)
+                stmt.setString(2, namespace)
+                stmt.executeQuery().use { rs ->
+                    rs.next() && rs.getInt(1) > 0
+                }
+            }
 }

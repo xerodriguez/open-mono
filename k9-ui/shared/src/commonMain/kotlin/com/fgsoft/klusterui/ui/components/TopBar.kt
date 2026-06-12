@@ -21,9 +21,10 @@ fun TopBar(
         color = MaterialTheme.colorScheme.surface,
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 10.dp),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -54,6 +55,9 @@ fun TopBar(
             }
             TextButton(onClick = { viewModel.currentView = AppView.PORT_FORWARD }) {
                 Text("Port Forward")
+            }
+            TextButton(onClick = { viewModel.currentView = AppView.LOGS }) {
+                Text("Logs")
             }
 
             TextButton(onClick = { viewModel.isDarkTheme = !viewModel.isDarkTheme }) {

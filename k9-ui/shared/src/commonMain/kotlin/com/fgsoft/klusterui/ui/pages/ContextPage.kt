@@ -11,6 +11,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -67,17 +68,27 @@ fun ContextPage(
     }
 
     if (showDialog) {
+        val editingCtx = editContext
+        val existingSubDefs =
+            remember(editingCtx) {
+                editingCtx?.let { ctx ->
+                    val subs = viewModel.subContextsByContextId[ctx.id] ?: emptyList()
+                    subs.map { it.regexPattern to it.displayName }
+                } ?: emptyList()
+            }
+
         ContextDialog(
             initial = editContext,
+            initialSubDefs = existingSubDefs,
             onDismiss = {
                 showDialog = false
                 editContext = null
             },
-            onSave = { context ->
+            onSave = { context, subDefs ->
                 if (context.id == 0L) {
-                    viewModel.addContext(context)
+                    viewModel.addContext(context, subDefs)
                 } else {
-                    viewModel.updateContext(context)
+                    viewModel.updateContext(context, subDefs)
                 }
                 showDialog = false
                 editContext = null
@@ -166,13 +177,20 @@ private fun ContextCard(
 @Composable
 private fun ContextDialog(
     initial: KubeContext?,
+    initialSubDefs: List<Pair<String, String>>,
     onDismiss: () -> Unit,
-    onSave: (KubeContext) -> Unit,
+    onSave: (KubeContext, List<Pair<String, String>>) -> Unit,
 ) {
     var name by remember { mutableStateOf(initial?.name ?: "") }
     var contextName by remember { mutableStateOf(initial?.context ?: "") }
     var color by remember { mutableStateOf(initial?.color ?: 0xFF1976D2) }
     var basePort by remember { mutableStateOf((initial?.portForwardBasePort ?: 8000).toString()) }
+    val subEntries = remember { mutableStateListOf<Pair<String, String>>() }
+
+    LaunchedEffect(initialSubDefs) {
+        subEntries.clear()
+        subEntries.addAll(initialSubDefs)
+    }
 
     val colors =
         listOf(
@@ -240,6 +258,49 @@ private fun ContextDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
+
+                HorizontalDivider()
+
+                Text("Sub-Namespaces", style = MaterialTheme.typography.labelLarge)
+
+                subEntries.forEachIndexed { index, entry ->
+                    val (regex, displayName) = entry
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        OutlinedTextField(
+                            value = regex,
+                            onValueChange = { subEntries[index] = it to displayName },
+                            label = { Text("Regex") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                        )
+                        OutlinedTextField(
+                            value = displayName,
+                            onValueChange = { subEntries[index] = regex to it },
+                            label = { Text("Display Name") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(
+                            onClick = { subEntries.removeAt(index) },
+                            colors =
+                                ButtonDefaults.textButtonColors(
+                                    contentColor = MaterialTheme.colorScheme.error,
+                                ),
+                        ) {
+                            Text("X")
+                        }
+                    }
+                }
+
+                TextButton(
+                    onClick = { subEntries.add("" to "") },
+                ) {
+                    Text("+ Add Sub-Namespace")
+                }
             }
         },
         confirmButton = {
@@ -255,6 +316,7 @@ private fun ContextDialog(
                             portForwardBasePort = port,
                             isActive = initial?.isActive ?: false,
                         ),
+                        subEntries.toList(),
                     )
                 },
                 enabled = name.isNotBlank() && contextName.isNotBlank(),
