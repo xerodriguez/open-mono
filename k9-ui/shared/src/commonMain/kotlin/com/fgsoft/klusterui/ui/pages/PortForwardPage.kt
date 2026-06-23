@@ -26,9 +26,10 @@ fun PortForwardPage(
     var editConfig by remember { mutableStateOf<PortForwardConfig?>(null) }
 
     Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(16.dp),
+        modifier =
+            modifier
+                .fillMaxSize()
+                .padding(16.dp),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -40,12 +41,13 @@ fun PortForwardPage(
                 style = MaterialTheme.typography.headlineMedium,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (viewModel.activePortForwardProcesses.isNotEmpty()) {
+                if (viewModel.portForward.activeProcesses.isNotEmpty()) {
                     OutlinedButton(
-                        onClick = { viewModel.killAllPortForwards() },
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = MaterialTheme.colorScheme.error,
-                        ),
+                        onClick = { viewModel.portForward.killAll() },
+                        colors =
+                            ButtonDefaults.outlinedButtonColors(
+                                contentColor = MaterialTheme.colorScheme.error,
+                            ),
                     ) {
                         Text("Stop All")
                     }
@@ -76,7 +78,7 @@ fun PortForwardPage(
             verticalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.weight(0.3f),
         ) {
-            if (viewModel.activePortForwardProcesses.isEmpty()) {
+            if (viewModel.portForward.activeProcesses.isEmpty()) {
                 item {
                     Text(
                         "No active port forwards",
@@ -86,10 +88,10 @@ fun PortForwardPage(
                     )
                 }
             }
-            items(viewModel.activePortForwardProcesses) { process ->
+            items(viewModel.portForward.activeProcesses) { process ->
                 ActiveProcessCard(
                     process = process,
-                    onStop = { viewModel.stopPortForward(process.id) },
+                    onStop = { viewModel.portForward.stop(process.id) },
                 )
             }
         }
@@ -102,7 +104,7 @@ fun PortForwardPage(
             verticalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.weight(0.7f),
         ) {
-            if (viewModel.portForwardConfigs.isEmpty()) {
+            if (viewModel.portForward.configs.isEmpty()) {
                 item {
                     Text(
                         "No saved configurations",
@@ -112,8 +114,8 @@ fun PortForwardPage(
                     )
                 }
             }
-            items(viewModel.portForwardConfigs) { config ->
-                val isRunning = viewModel.activePortForwardProcesses.any { it.configId == config.id }
+            items(viewModel.portForward.configs) { config ->
+                val isRunning = viewModel.portForward.activeProcesses.any { it.configId == config.id }
                 PortForwardConfigCard(
                     config = config,
                     isRunning = isRunning,
@@ -121,11 +123,14 @@ fun PortForwardPage(
                         viewModel.startPortForward(config, "${config.resourceType}/${config.resourceName}")
                     },
                     onStop = {
-                        viewModel.activePortForwardProcesses
+                        viewModel.portForward.activeProcesses
                             .filter { it.configId == config.id }
-                            .forEach { viewModel.stopPortForward(it.id) }
+                            .forEach { viewModel.portForward.stop(it.id) }
                     },
-                    onEdit = { editConfig = config; showDialog = true },
+                    onEdit = {
+                        editConfig = config
+                        showDialog = true
+                    },
                     onDelete = { viewModel.deletePortForwardConfig(config.id) },
                 )
             }
@@ -136,10 +141,16 @@ fun PortForwardPage(
         PortForwardDialog(
             config = editConfig,
             basePort = viewModel.activeContext?.portForwardBasePort ?: 8000,
-            onDismiss = { showDialog = false; editConfig = null },
+            onDismiss = {
+                showDialog = false
+                editConfig = null
+            },
             onSave = { config ->
-                if (config.id == 0L) viewModel.addPortForwardConfig(config)
-                else viewModel.updatePortForwardConfig(config)
+                if (config.id == 0L) {
+                    viewModel.portForward.addConfig(config)
+                } else {
+                    viewModel.portForward.updateConfig(config)
+                }
                 showDialog = false
                 editConfig = null
             },
@@ -148,13 +159,17 @@ fun PortForwardPage(
 }
 
 @Composable
-private fun ActiveProcessCard(process: PortForwardProcess, onStop: () -> Unit) {
+private fun ActiveProcessCard(
+    process: PortForwardProcess,
+    onStop: () -> Unit,
+) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer,
-        ),
+        colors =
+            CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+            ),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(12.dp),
@@ -265,15 +280,27 @@ private fun PortForwardDialog(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                OutlinedTextField(value = namespace, onValueChange = { namespace = it }, label = { Text("Namespace") }, singleLine = true, modifier = Modifier.width(300.dp))
-                OutlinedTextField(value = resourceType, onValueChange = { resourceType = it }, label = { Text("Resource Type (pod, svc, deploy)") }, singleLine = true, modifier = Modifier.width(300.dp))
-                OutlinedTextField(value = resourceName, onValueChange = { resourceName = it }, label = { Text("Resource Name") }, singleLine = true, modifier = Modifier.width(300.dp))
-                OutlinedTextField(value = remotePort, onValueChange = { remotePort = it }, label = { Text("Remote Port") }, singleLine = true, modifier = Modifier.width(300.dp))
+                OutlinedTextField(value = namespace, onValueChange = {
+                    namespace = it
+                }, label = { Text("Namespace") }, singleLine = true, modifier = Modifier.width(300.dp))
+                OutlinedTextField(value = resourceType, onValueChange = {
+                    resourceType = it
+                }, label = { Text("Resource Type (pod, svc, deploy)") }, singleLine = true, modifier = Modifier.width(300.dp))
+                OutlinedTextField(value = resourceName, onValueChange = {
+                    resourceName = it
+                }, label = { Text("Resource Name") }, singleLine = true, modifier = Modifier.width(300.dp))
+                OutlinedTextField(value = remotePort, onValueChange = {
+                    remotePort = it
+                }, label = { Text("Remote Port") }, singleLine = true, modifier = Modifier.width(300.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedTextField(value = localPort, onValueChange = { localPort = it }, label = { Text("Local Port") }, singleLine = true, modifier = Modifier.weight(1f))
+                    OutlinedTextField(value = localPort, onValueChange = {
+                        localPort = it
+                    }, label = { Text("Local Port") }, singleLine = true, modifier = Modifier.weight(1f))
                     TextButton(onClick = { customPort = !customPort }) { Text(if (customPort) "Auto" else "Custom") }
                 }
-                OutlinedTextField(value = label, onValueChange = { label = it }, label = { Text("Label (optional)") }, singleLine = true, modifier = Modifier.width(300.dp))
+                OutlinedTextField(value = label, onValueChange = {
+                    label = it
+                }, label = { Text("Label (optional)") }, singleLine = true, modifier = Modifier.width(300.dp))
             }
         },
         confirmButton = {
@@ -292,7 +319,7 @@ private fun PortForwardDialog(
                             localPort = if (customPort) lp else basePort + rp,
                             customLocalPort = customPort,
                             label = label,
-                        )
+                        ),
                     )
                 },
                 enabled = namespace.isNotBlank() && resourceType.isNotBlank() && resourceName.isNotBlank() && remotePort.isNotBlank(),

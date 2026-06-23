@@ -32,7 +32,7 @@ fun ResourceDetailPage(
     viewModel: AppViewModel,
     modifier: Modifier = Modifier,
 ) {
-    val resource = viewModel.selectedResource
+    val resource = viewModel.explorer.selectedResource
 
     if (resource == null) {
         Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -78,10 +78,10 @@ fun ResourceDetailPage(
         val tabName = tabs.getOrElse(selectedTab) { "YAML" }
         val content =
             when (tabName) {
-                "YAML" -> viewModel.resourceYaml
-                "Events" -> viewModel.resourceEvents
-                "Logs" -> viewModel.podLogs
-                "Metrics" -> viewModel.podMetrics
+                "YAML" -> viewModel.resource.yaml
+                "Events" -> viewModel.resource.events
+                "Logs" -> viewModel.resource.podLogs
+                "Metrics" -> viewModel.resource.podMetrics
                 else -> ""
             }
 

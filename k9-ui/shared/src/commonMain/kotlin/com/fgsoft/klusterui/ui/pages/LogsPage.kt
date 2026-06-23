@@ -21,10 +21,10 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.fgsoft.klusterui.ui.AppViewModel
-import com.fgsoft.klusterui.ui.LogTabState
 import com.fgsoft.klusterui.ui.components.CopyButton
 import com.fgsoft.klusterui.ui.components.SearchBar
 import com.fgsoft.klusterui.ui.components.appendHighlightedLine
+import com.fgsoft.klusterui.ui.store.LogTabState
 
 @Composable
 fun LogsPage(
@@ -32,7 +32,7 @@ fun LogsPage(
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.fillMaxSize().padding(8.dp)) {
-        if (viewModel.logTabs.isEmpty()) {
+        if (viewModel.logs.tabs.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
                     "No log tabs open. Right-click a namespace in the tree and select \"View Logs\".",
@@ -44,14 +44,14 @@ fun LogsPage(
         }
 
         ScrollableTabRow(
-            selectedTabIndex = viewModel.activeLogTabIndex.coerceIn(0, viewModel.logTabs.size - 1),
+            selectedTabIndex = viewModel.logs.activeTabIndex.coerceIn(0, viewModel.logs.tabs.size - 1),
             modifier = Modifier.fillMaxWidth(),
             edgePadding = 0.dp,
         ) {
-            viewModel.logTabs.forEachIndexed { index, tab ->
+            viewModel.logs.tabs.forEachIndexed { index, tab ->
                 Tab(
-                    selected = index == viewModel.activeLogTabIndex,
-                    onClick = { viewModel.setActiveLogTab(index) },
+                    selected = index == viewModel.logs.activeTabIndex,
+                    onClick = { viewModel.logs.setActive(index) },
                     text = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
@@ -69,7 +69,7 @@ fun LogsPage(
                             }
                             Spacer(Modifier.width(4.dp))
                             TextButton(
-                                onClick = { viewModel.closeLogsTab(index) },
+                                onClick = { viewModel.logs.close(index) },
                                 modifier = Modifier.size(24.dp),
                                 contentPadding = PaddingValues(0.dp),
                             ) {
@@ -81,7 +81,7 @@ fun LogsPage(
             }
         }
 
-        val activeTab = viewModel.logTabs.getOrNull(viewModel.activeLogTabIndex)
+        val activeTab = viewModel.logs.tabs.getOrNull(viewModel.logs.activeTabIndex)
         if (activeTab != null) {
             LogViewer(
                 tab = activeTab,
@@ -100,21 +100,21 @@ private fun LogViewer(
     val density = LocalDensity.current
 
     LaunchedEffect(tab.logContent) {
-        if (viewModel.logAutoScroll && tab.logContent.isNotEmpty()) {
+        if (viewModel.logs.autoScroll && tab.logContent.isNotEmpty()) {
             scrollState.animateScrollTo(scrollState.maxValue)
         }
     }
 
-    val searchMatches = viewModel.logSearchMatches
-    val activeMatchIdx = viewModel.activeLogSearchMatchIndex
+    val searchMatches = viewModel.logs.searchMatches
+    val activeMatchIdx = viewModel.logs.activeMatchIndex
     val currentMatchPos = searchMatches.getOrNull(activeMatchIdx)
 
     val annotatedLog =
-        remember(tab.logContent, viewModel.logSearchQuery, viewModel.logHighlightLevel, currentMatchPos) {
+        remember(tab.logContent, viewModel.logs.searchQuery, viewModel.logs.highlightLevel, currentMatchPos) {
             buildLogAnnotatedString(
                 tab.logContent,
-                viewModel.logSearchQuery,
-                viewModel.logHighlightLevel,
+                viewModel.logs.searchQuery,
+                viewModel.logs.highlightLevel,
                 currentMatchPos,
             )
         }
@@ -138,53 +138,53 @@ private fun LogViewer(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             SearchBar(
-                query = viewModel.logSearchQuery,
+                query = viewModel.logs.searchQuery,
                 onQueryChange = {
-                    viewModel.logSearchQuery = it
-                    viewModel.updateLogSearchMatches()
+                    viewModel.logs.searchQuery = it
+                    viewModel.logs.updateMatchPositions()
                 },
                 matches = searchMatches,
                 activeMatchIndex = activeMatchIdx,
-                onNext = { viewModel.searchLogsNext() },
-                onPrev = { viewModel.searchLogsPrev() },
+                onNext = { viewModel.logs.searchNext() },
+                onPrev = { viewModel.logs.searchPrev() },
                 onClear = {
-                    viewModel.logSearchQuery = ""
-                    viewModel.logSearchMatches = emptyList()
-                    viewModel.activeLogSearchMatchIndex = -1
+                    viewModel.logs.searchQuery = ""
+                    viewModel.logs.searchMatches = emptyList()
+                    viewModel.logs.activeMatchIndex = -1
                 },
                 placeholder = "Search logs...",
             )
 
-            TextButton(onClick = { viewModel.logAutoScroll = !viewModel.logAutoScroll }) {
+            TextButton(onClick = { viewModel.logs.autoScroll = !viewModel.logs.autoScroll }) {
                 Text(
-                    if (viewModel.logAutoScroll) "\u2713 Auto" else "Auto",
+                    if (viewModel.logs.autoScroll) "\u2713 Auto" else "Auto",
                     style = MaterialTheme.typography.labelSmall,
                     color =
-                        if (viewModel.logAutoScroll) {
+                        if (viewModel.logs.autoScroll) {
                             MaterialTheme.colorScheme.primary
                         } else {
                             MaterialTheme.colorScheme.onSurfaceVariant
                         },
                 )
             }
-            TextButton(onClick = { viewModel.logWrapText = !viewModel.logWrapText }) {
+            TextButton(onClick = { viewModel.logs.wrapText = !viewModel.logs.wrapText }) {
                 Text(
-                    if (viewModel.logWrapText) "\u2713 Wrap" else "Wrap",
+                    if (viewModel.logs.wrapText) "\u2713 Wrap" else "Wrap",
                     style = MaterialTheme.typography.labelSmall,
                     color =
-                        if (viewModel.logWrapText) {
+                        if (viewModel.logs.wrapText) {
                             MaterialTheme.colorScheme.primary
                         } else {
                             MaterialTheme.colorScheme.onSurfaceVariant
                         },
                 )
             }
-            TextButton(onClick = { viewModel.logHighlightLevel = !viewModel.logHighlightLevel }) {
+            TextButton(onClick = { viewModel.logs.highlightLevel = !viewModel.logs.highlightLevel }) {
                 Text(
-                    if (viewModel.logHighlightLevel) "\u2713 HL" else "HL",
+                    if (viewModel.logs.highlightLevel) "\u2713 HL" else "HL",
                     style = MaterialTheme.typography.labelSmall,
                     color =
-                        if (viewModel.logHighlightLevel) {
+                        if (viewModel.logs.highlightLevel) {
                             MaterialTheme.colorScheme.primary
                         } else {
                             MaterialTheme.colorScheme.onSurfaceVariant
@@ -194,18 +194,18 @@ private fun LogViewer(
 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = {
-                    viewModel.logFontSize = (viewModel.logFontSize - 1f).coerceAtLeast(9f)
+                    viewModel.logs.fontSize = (viewModel.logs.fontSize - 1f).coerceAtLeast(9f)
                 }) { Text("\u2212", style = MaterialTheme.typography.labelLarge) }
                 Text(
-                    "${viewModel.logFontSize.toInt()}px",
+                    "${viewModel.logs.fontSize.toInt()}px",
                     style = MaterialTheme.typography.labelSmall,
                 )
                 TextButton(onClick = {
-                    viewModel.logFontSize = (viewModel.logFontSize + 1f).coerceAtMost(24f)
+                    viewModel.logs.fontSize = (viewModel.logs.fontSize + 1f).coerceAtMost(24f)
                 }) { Text("+", style = MaterialTheme.typography.labelLarge) }
             }
 
-            TextButton(onClick = { viewModel.refreshActiveLogTab() }) {
+            TextButton(onClick = { viewModel.logs.refresh() }) {
                 Text("\u21BB", style = MaterialTheme.typography.labelSmall)
             }
 
@@ -236,8 +236,8 @@ private fun LogViewer(
                     Text(
                         text = annotatedLog,
                         fontFamily = FontFamily.Monospace,
-                        fontSize = viewModel.logFontSize.sp,
-                        softWrap = viewModel.logWrapText,
+                        fontSize = viewModel.logs.fontSize.sp,
+                        softWrap = viewModel.logs.wrapText,
                         style = MaterialTheme.typography.bodySmall,
                         onTextLayout = { textLayoutResult = it },
                     )
