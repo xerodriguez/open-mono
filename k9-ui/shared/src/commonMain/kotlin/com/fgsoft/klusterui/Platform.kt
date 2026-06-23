@@ -9,3 +9,5 @@ interface Platform {
 expect fun getPlatform(): Platform
 
 expect fun cursorHorizontalResize(): PointerIcon?
+
+expect fun copyToClipboard(text: String)

@@ -3,7 +3,7 @@
 ## Overview
 A Kubernetes context viewer and manager desktop application built with Kotlin Desktop (Compose Multiplatform) + GraalVM, using Material Design 3 and SQLite.
 
-## Current Status: Unified Logs View (2026-06-11_v2)
+## Current Status: Resource Detail Page — Search & Copy (#2026-06-23)
 
 ### Implemented Features
 
@@ -37,6 +37,14 @@ A Kubernetes context viewer and manager desktop application built with Kotlin De
   - [x] Diff-based background refresh (10s polling, only updates tree on actual changes)
   - [x] Context color indicators in tree
 - [x] Resource detail page with YAML, Events, Logs, Metrics tabs
+  - [x] Per-tab search bar with next/prev match navigation and match counter
+  - [x] Case-insensitive search highlighting (yellow bg for matches, orange for current)
+  - [x] Scroll-to-match on search navigation (auto-scrolls to current match line)
+  - [x] Native text selection via SelectionContainer (Cmd+C / right-click copy)
+  - [x] Copy button (📋) in each content tab toolbar for one-tap full content copy
+  - [x] Quick-copy icons (📋) next to resource name and namespace in ResourceHeader
+  - [x] Snackbar notifications for copy confirmations ("Copied to clipboard" / errors)
+  - [x] Search state preserved per-tab when switching between YAML/Events/Logs/Metrics
 - [x] Context management page (CRUD with color picker, base port config, sub-namespace regex+display name editor, multi-active toggle)
 - [x] Port forwarding page (CRUD configs, start/stop/kill-all processes, PID display)
 - [x] Delete context confirmation dialog from sidebar right-click
@@ -44,19 +52,26 @@ A Kubernetes context viewer and manager desktop application built with Kotlin De
 - [x] Unified namespace logs view with:
   - [x] Tabbed interface for multiple namespace logs simultaneously
   - [x] Aggregated logs from all pods in a namespace (pod name headers)
-  - [x] Search with next/previous match navigation and match count
+  - [x] Search with next/previous match navigation and match count (refactored to shared SearchBar component)
   - [x] Search highlight in log text (current match in different color)
+  - [x] Scroll-to-match on search navigation in logs
   - [x] Font size adjustment (+/- buttons, 9–24sp range)
   - [x] Text wrapping toggle
   - [x] Log level highlighting toggle (ERROR/WARN/DEBUG colors)
   - [x] Auto-scroll to bottom on new log content
   - [x] Manual refresh button
+  - [x] Copy button (📋) for one-tap full log content copy
   - [x] Selectable text for clipboard copy (native SelectionContainer)
   - [x] Right-click "View Logs" on namespaces in tree view
   - [x] Logs icon (📄) on each namespace to open logs tab
   - [x] ✓/○ toggle indicators with primary/gray color for on/off state
   - [x] Compact control toolbar with smaller typography for better fit
 - [x] Resizable sidebar divider with horizontal-resize cursor on hover
+- [x] Reusable UI components extracted:
+  - [x] SearchBar — controlled search input with prev/next/counter/clear (shared by ResourceDetailPage + LogsPage)
+  - [x] CopyButton — one-tap clipboard copy with snackbar feedback (shared by ResourceDetailPage + LogsPage)
+  - [x] HighlightedText — utilities for findAllMatches, buildHighlightedAnnotatedString, appendHighlightedLine
+  - [x] Snackbar infrastructure — CompositionLocal-based SnackbarHostState for app-wide notifications
 
 #### Process Management
 - [x] Detached kubectl port-forward processes with PID tracking

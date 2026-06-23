@@ -15,14 +15,18 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
@@ -32,6 +36,7 @@ import com.fgsoft.klusterui.model.AppView
 import com.fgsoft.klusterui.model.KubeResource
 import com.fgsoft.klusterui.model.PortForwardConfig
 import com.fgsoft.klusterui.ui.AppViewModel
+import com.fgsoft.klusterui.ui.components.LocalSnackbarHostState
 import com.fgsoft.klusterui.ui.components.Sidebar
 import com.fgsoft.klusterui.ui.components.TopBar
 import com.fgsoft.klusterui.ui.pages.ContextPage
@@ -45,76 +50,87 @@ fun App(deps: AppDependencies) {
     val viewModel = remember { AppViewModel(deps) }
 
     KlusterUiTheme(darkTheme = viewModel.isDarkTheme) {
-        var sidebarWidthDp by remember { mutableFloatStateOf(280f) }
-        val density = LocalDensity.current
+        val snackbarHostState = remember { SnackbarHostState() }
 
-        Column(modifier = Modifier.fillMaxSize()) {
-            TopBar(viewModel)
-            Row(modifier = Modifier.fillMaxSize().weight(1f)) {
-                when (viewModel.currentView) {
-                    AppView.TREE_VIEW -> {
-                        Sidebar(viewModel, Modifier.width(sidebarWidthDp.dp))
+        CompositionLocalProvider(LocalSnackbarHostState provides snackbarHostState) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                var sidebarWidthDp by remember { mutableFloatStateOf(280f) }
+                val density = LocalDensity.current
 
-                        Box(
-                            modifier =
-                                Modifier
-                                    .width(4.dp)
-                                    .fillMaxHeight()
-                                    .background(MaterialTheme.colorScheme.outlineVariant)
-                                    .then(
-                                        cursorHorizontalResize()?.let { icon ->
-                                            Modifier.pointerHoverIcon(icon)
-                                        } ?: Modifier,
-                                    ).pointerInput(Unit) {
-                                        detectHorizontalDragGestures { _, dragAmount ->
-                                            sidebarWidthDp =
-                                                (sidebarWidthDp + dragAmount / density.density)
-                                                    .coerceIn(180f, 500f)
-                                        }
-                                    },
-                        )
+                Column(modifier = Modifier.fillMaxSize()) {
+                    TopBar(viewModel)
+                    Row(modifier = Modifier.fillMaxSize().weight(1f)) {
+                        when (viewModel.currentView) {
+                            AppView.TREE_VIEW -> {
+                                Sidebar(viewModel, Modifier.width(sidebarWidthDp.dp))
 
-                        ResourceDetailPage(viewModel, modifier = Modifier.weight(1f).fillMaxHeight())
-                    }
+                                Box(
+                                    modifier =
+                                        Modifier
+                                            .width(4.dp)
+                                            .fillMaxHeight()
+                                            .background(MaterialTheme.colorScheme.outlineVariant)
+                                            .then(
+                                                cursorHorizontalResize()?.let { icon ->
+                                                    Modifier.pointerHoverIcon(icon)
+                                                } ?: Modifier,
+                                            ).pointerInput(Unit) {
+                                                detectHorizontalDragGestures { _, dragAmount ->
+                                                    sidebarWidthDp =
+                                                        (sidebarWidthDp + dragAmount / density.density)
+                                                            .coerceIn(180f, 500f)
+                                                }
+                                            },
+                                )
 
-                    AppView.CONTEXT_SETTINGS -> {
-                        ContextPage(viewModel, modifier = Modifier.weight(1f).fillMaxHeight())
-                    }
+                                ResourceDetailPage(viewModel, modifier = Modifier.weight(1f).fillMaxHeight())
+                            }
 
-                    AppView.PORT_FORWARD -> {
-                        PortForwardPage(viewModel, modifier = Modifier.weight(1f).fillMaxHeight())
-                    }
+                            AppView.CONTEXT_SETTINGS -> {
+                                ContextPage(viewModel, modifier = Modifier.weight(1f).fillMaxHeight())
+                            }
 
-                    AppView.LOGS -> {
-                        LogsPage(viewModel, modifier = Modifier.weight(1f).fillMaxHeight())
+                            AppView.PORT_FORWARD -> {
+                                PortForwardPage(viewModel, modifier = Modifier.weight(1f).fillMaxHeight())
+                            }
+
+                            AppView.LOGS -> {
+                                LogsPage(viewModel, modifier = Modifier.weight(1f).fillMaxHeight())
+                            }
+                        }
                     }
                 }
+
+                viewModel.showDeleteContextDialog?.let { context ->
+                    AlertDialog(
+                        onDismissRequest = { viewModel.showDeleteContextDialog = null },
+                        title = { Text("Delete Context") },
+                        text = { Text("Delete \"${context.name}\"? This cannot be undone.") },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                viewModel.deleteContext(context.id)
+                                viewModel.showDeleteContextDialog = null
+                            }) { Text("Delete") }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { viewModel.showDeleteContextDialog = null }) { Text("Cancel") }
+                        },
+                    )
+                }
+
+                viewModel.showPortForwardDialog?.let { resource ->
+                    SidebarPortForwardDialog(
+                        resource = resource,
+                        viewModel = viewModel,
+                        onDismiss = { viewModel.showPortForwardDialog = null },
+                    )
+                }
+
+                SnackbarHost(
+                    hostState = snackbarHostState,
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                )
             }
-        }
-
-        viewModel.showDeleteContextDialog?.let { context ->
-            AlertDialog(
-                onDismissRequest = { viewModel.showDeleteContextDialog = null },
-                title = { Text("Delete Context") },
-                text = { Text("Delete \"${context.name}\"? This cannot be undone.") },
-                confirmButton = {
-                    TextButton(onClick = {
-                        viewModel.deleteContext(context.id)
-                        viewModel.showDeleteContextDialog = null
-                    }) { Text("Delete") }
-                },
-                dismissButton = {
-                    TextButton(onClick = { viewModel.showDeleteContextDialog = null }) { Text("Cancel") }
-                },
-            )
-        }
-
-        viewModel.showPortForwardDialog?.let { resource ->
-            SidebarPortForwardDialog(
-                resource = resource,
-                viewModel = viewModel,
-                onDismiss = { viewModel.showPortForwardDialog = null },
-            )
         }
     }
 }

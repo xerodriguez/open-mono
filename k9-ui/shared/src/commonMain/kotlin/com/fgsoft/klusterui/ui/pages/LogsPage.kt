@@ -1,7 +1,6 @@
 package com.fgsoft.klusterui.ui.pages
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -12,7 +11,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
@@ -20,6 +21,10 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.fgsoft.klusterui.ui.AppViewModel
+import com.fgsoft.klusterui.ui.LogTabState
+import com.fgsoft.klusterui.ui.components.CopyButton
+import com.fgsoft.klusterui.ui.components.SearchBar
+import com.fgsoft.klusterui.ui.components.appendHighlightedLine
 
 @Composable
 fun LogsPage(
@@ -88,16 +93,11 @@ fun LogsPage(
 
 @Composable
 private fun LogViewer(
-    tab: com.fgsoft.klusterui.ui.LogTabState,
+    tab: LogTabState,
     viewModel: AppViewModel,
 ) {
     val scrollState = rememberScrollState()
-    val searchScrollState = rememberScrollState()
-
-    val logLines =
-        remember(tab.logContent) {
-            tab.logContent.lines()
-        }
+    val density = LocalDensity.current
 
     LaunchedEffect(tab.logContent) {
         if (viewModel.logAutoScroll && tab.logContent.isNotEmpty()) {
@@ -119,56 +119,41 @@ private fun LogViewer(
             )
         }
 
+    var textLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
+
+    LaunchedEffect(activeMatchIdx, textLayoutResult) {
+        val layout = textLayoutResult ?: return@LaunchedEffect
+        val pos = searchMatches.getOrNull(activeMatchIdx) ?: return@LaunchedEffect
+        val safePos = pos.coerceIn(0, maxOf(0, tab.logContent.length - 1))
+        val line = layout.getLineForOffset(safePos)
+        val lineTop = layout.getLineTop(line)
+        val paddingPx = with(density) { 8.dp.toPx() }
+        scrollState.animateScrollTo(maxOf(0, (lineTop - paddingPx).toInt()))
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
             modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            OutlinedTextField(
-                value = viewModel.logSearchQuery,
-                onValueChange = {
+            SearchBar(
+                query = viewModel.logSearchQuery,
+                onQueryChange = {
                     viewModel.logSearchQuery = it
                     viewModel.updateLogSearchMatches()
                 },
-                placeholder = { Text("Search logs...", style = MaterialTheme.typography.bodySmall) },
-                singleLine = true,
-                textStyle = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.width(200.dp).fillMaxWidth(),
-                trailingIcon = {
-                    if (viewModel.logSearchQuery.isNotEmpty()) {
-                        Text(
-                            "\u00D7",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier =
-                                Modifier.clickable {
-                                    viewModel.logSearchQuery = ""
-                                    viewModel.logSearchMatches = emptyList()
-                                    viewModel.activeLogSearchMatchIndex = -1
-                                },
-                        )
-                    }
+                matches = searchMatches,
+                activeMatchIndex = activeMatchIdx,
+                onNext = { viewModel.searchLogsNext() },
+                onPrev = { viewModel.searchLogsPrev() },
+                onClear = {
+                    viewModel.logSearchQuery = ""
+                    viewModel.logSearchMatches = emptyList()
+                    viewModel.activeLogSearchMatchIndex = -1
                 },
+                placeholder = "Search logs...",
             )
-
-            TextButton(onClick = { viewModel.searchLogsPrev() }, enabled = searchMatches.isNotEmpty()) {
-                Text("\u25B2", style = MaterialTheme.typography.labelSmall)
-            }
-            TextButton(onClick = { viewModel.searchLogsNext() }, enabled = searchMatches.isNotEmpty()) {
-                Text("\u25BC", style = MaterialTheme.typography.labelSmall)
-            }
-            if (searchMatches.isNotEmpty()) {
-                Text(
-                    "${activeMatchIdx + 1}/${searchMatches.size}",
-                    style = MaterialTheme.typography.labelSmall,
-                )
-            } else if (viewModel.logSearchQuery.isNotEmpty()) {
-                Text(
-                    "0/0",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
 
             TextButton(onClick = { viewModel.logAutoScroll = !viewModel.logAutoScroll }) {
                 Text(
@@ -223,6 +208,8 @@ private fun LogViewer(
             TextButton(onClick = { viewModel.refreshActiveLogTab() }) {
                 Text("\u21BB", style = MaterialTheme.typography.labelSmall)
             }
+
+            CopyButton(content = tab.logContent)
         }
 
         HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
@@ -252,6 +239,7 @@ private fun LogViewer(
                         fontSize = viewModel.logFontSize.sp,
                         softWrap = viewModel.logWrapText,
                         style = MaterialTheme.typography.bodySmall,
+                        onTextLayout = { textLayoutResult = it },
                     )
                 }
             }
@@ -275,8 +263,6 @@ private fun buildLogAnnotatedString(
         val errorColor = Color(0xFFEF5350)
         val warnColor = Color(0xFFFFA726)
         val debugColor = Color(0xFF42A5F5)
-        val matchBg = Color(0xFFFFF176)
-        val currentMatchBg = Color(0xFFFF8F00)
 
         val lines = content.lines()
         lines.forEachIndexed { lineIdx, line ->
@@ -297,48 +283,10 @@ private fun buildLogAnnotatedString(
                         else -> SpanStyle()
                     }
                 withStyle(lineStyle) {
-                    appendHighlightedLine(line, searchQuery, currentMatchPos, matchBg, currentMatchBg)
+                    appendHighlightedLine(line, searchQuery, currentMatchPos)
                 }
             } else {
-                appendHighlightedLine(line, searchQuery, currentMatchPos, matchBg, currentMatchBg)
+                appendHighlightedLine(line, searchQuery, currentMatchPos)
             }
         }
     }
-
-private fun androidx.compose.ui.text.AnnotatedString.Builder.appendHighlightedLine(
-    line: String,
-    searchQuery: String,
-    currentMatchPos: Int?,
-    matchBg: Color,
-    currentMatchBg: Color,
-) {
-    if (searchQuery.isBlank()) {
-        append(line)
-        return
-    }
-
-    var remaining = line
-    var startOffset = 0
-    while (remaining.isNotEmpty()) {
-        val idx = remaining.indexOf(searchQuery, ignoreCase = true)
-        if (idx < 0) {
-            append(remaining)
-            break
-        }
-        if (idx > 0) {
-            append(remaining.substring(0, idx))
-        }
-        val globalPos = startOffset + idx
-        val isCurrentMatch = currentMatchPos != null && globalPos == currentMatchPos
-        pushStyle(
-            SpanStyle(
-                background = if (isCurrentMatch) currentMatchBg else matchBg,
-                color = Color.Black,
-            ),
-        )
-        append(remaining.substring(idx, idx + searchQuery.length))
-        pop()
-        startOffset += idx + searchQuery.length
-        remaining = remaining.substring(idx + searchQuery.length)
-    }
-}

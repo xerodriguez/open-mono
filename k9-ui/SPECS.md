@@ -211,3 +211,62 @@ New hierarchy: `Context → ★ Favorites → SubContext folders → Unmatched n
 - Clear button in search field uses plain clickable × instead of TextButton to avoid padding issues
 - All control toolbar texts use `labelSmall`/`labelLarge` for compact sizing
 - Search next/prev and refresh buttons use `labelSmall` typography
+
+#2026-06-23
+### Resource Detail Page — Search & Copy
+
+#### Text Selection (Native Keyboard Shortcuts)
+- All content tabs (YAML, Events, Logs, Metrics) must support native text selection. Replace plain `Text` in `YamlView` with a `SelectionContainer` wrapping the monospace `Text`.
+- `SelectionContainer` on Compose Desktop automatically handles Cmd+C (copy), Cmd+V (paste), and mouse-based select-all/cut operations. No additional keyboard handling is needed — the platform provides these shortcuts out of the box when text is inside a `SelectionContainer`.
+- Users can highlight any range and use Cmd+C to copy to clipboard, or right-click for the native context menu with Copy.
+
+#### In-Content Search (UI Convenience)
+- Add a search bar at the top of each content tab with:
+  - Text input for case-insensitive query
+  - Next (▲) / Previous (▼) buttons and match counter `n/N`
+  - Clear button (×) to dismiss query and highlight
+- All matching substrings highlighted with background color (yellow in light theme, dark yellow/orange in dark). Current match gets a distinct border/accent.
+- Search wraps around on navigation. Operates on currently loaded content only (static — no server fetching).
+
+#### Copy Button (One-Tap Full Content)
+- "Copy" button (📋 icon) in each tab's toolbar that copies the entire tab content to clipboard when no text is selected.
+- If text IS selected, the button copies only the selected portion (use `LocalClipboard` with the selection range).
+- Snackbar confirmation on success ("Copied to clipboard"), error Snackbar on failure.
+
+#### Resource Header Quick Copy
+- Small copy icon (📋) next to the resource name and namespace in `ResourceHeader` for one-tap copying of that specific value.
+- Shows Snackbar confirmation on copy.
+
+## Implementation Notes (#2026-06-23)
+
+### SelectionContainer (Native Cmd+C)
+- Wrap `YamlView` content: `SelectionContainer { Text(text = ..., fontFamily = FontFamily.Monospace, ...) }`.
+- Compose Desktop's `SelectionContainer` natively supports Cmd+C, Cmd+V, Cmd+A, and right-click context menu — no custom key listeners required.
+- Import: `androidx.compose.foundation.selectioncontainer`.
+
+### Clipboard (Copy Button)
+- Use `LocalClipboard` from `androidx.compose.ui.platform.LocalClipboard`.
+- For full-content copy: `clipboardManager.setText(AnnotatedString(content))`.
+- For selected-text copy via button: read selection state from `SelectionContainer` or use a separate remembered selection range tracked by the composable.
+
+### Search Implementation
+- View-local state in `ResourceDetailPage` (not ViewModel):
+  - `searchQuery: String`, `searchMatches: List<Int>`, `activeMatchIndex: Int`
+  - `buildHighlightedAnnotatedString(content, query, matches, activeIndex)` — returns `AnnotatedString` with background spans for each match.
+- Replace plain `Text` in `YamlView` with: `SelectionContainer { Text(annotatedString, fontFamily = FontFamily.Monospace, ...) }`.
+- Search bar UI mirrors existing pattern from Unified Logs View (next/prev buttons, match count).
+
+### Copy Button Placement
+- Card toolbar area: copy icon button in top-right corner of each content card.
+
+### Snackbar
+- Add `SnackbarHost` to the page layout via `ModalNavigationManager` or top-level `Scaffold`.
+- Use `SnackbarHostState.showSnackbar()` for copy confirmations.
+
+### ResourceHeader Quick Copy
+- Inline `IconButton` with copy icon next to each field value.
+- Captures the string value and calls `clipboardManager.setText()` directly.
+
+### NOT Implemented (pending)
+- Parsing structured values from YAML raw text (e.g., extracting port numbers, IPs automatically)
+- Search across multiple tabs simultaneously
