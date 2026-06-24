@@ -57,7 +57,7 @@ fun Sidebar(
                 .verticalScroll(rememberScrollState())
                 .padding(8.dp),
     ) {
-        if (viewModel.activeContexts.isEmpty()) {
+        if (viewModel.contexts.activeContexts.isEmpty()) {
             Text(
                 "No active contexts",
                 style = MaterialTheme.typography.bodyMedium,
@@ -67,7 +67,7 @@ fun Sidebar(
             return
         }
 
-        for (context in viewModel.activeContexts) {
+        for (context in viewModel.contexts.activeContexts) {
             ContextAccordion(context, viewModel)
         }
     }
@@ -78,10 +78,10 @@ private fun ContextAccordion(
     context: KubeContext,
     viewModel: AppViewModel,
 ) {
-    val isExpanded = context.id in viewModel.expandedContexts
+    val isExpanded = context.id in viewModel.explorer.expandedContexts
     var showContextMenu by remember { mutableStateOf(false) }
     val contextColor = Color(context.color)
-    val namespaces = viewModel.contextNamespaces[context.name] ?: emptyList()
+    val namespaces = viewModel.contexts.namespaces[context.name] ?: emptyList()
     val matchesSearch =
         viewModel.treeMatchesSearch(context.name) ||
             namespaces.any { viewModel.treeMatchesSearch(it.name) } ||
@@ -96,7 +96,7 @@ private fun ContextAccordion(
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(8.dp))
                     .background(if (isExpanded) MaterialTheme.colorScheme.surface else Color.Transparent)
-                    .clickable { viewModel.toggleContextExpanded(context.id) }
+                    .clickable { viewModel.explorer.toggleContext(context.id) }
                     .onPointerEvent(PointerEventType.Press) { event ->
                         if (event.button == androidx.compose.ui.input.pointer.PointerButton.Secondary) {
                             showContextMenu = true
@@ -163,10 +163,10 @@ private fun ContextAccordion(
                     modifier = Modifier.padding(start = 28.dp, top = 4.dp, bottom = 4.dp),
                 )
             } else {
-                val subContexts = viewModel.subContextsByContextId[context.id] ?: emptyList()
-                val grouped = viewModel.groupNamespacesBySubContext(context.id, namespaces)
+                val subContexts = viewModel.contexts.subContextsByContextId[context.id] ?: emptyList()
+                val grouped = viewModel.explorer.groupNamespacesBySubContext(subContexts, namespaces)
 
-                val favoriteNs = viewModel.getFavoriteNamespacesForContext(context.id)
+                val favoriteNs = viewModel.contexts.favoriteNamespacesFor(context.id)
                 if (favoriteNs.isNotEmpty()) {
                     val favNamespaces = namespaces.filter { it.name in favoriteNs }
                     val favMatches =
@@ -175,7 +175,7 @@ private fun ContextAccordion(
                             viewModel.searchQuery.isBlank()
                     if (favMatches) {
                         val favKey = "${context.id}/-1"
-                        val favExpanded = favKey in viewModel.expandedSubContexts
+                        val favExpanded = favKey in viewModel.explorer.expandedSubContexts
                         FavoritesSection(
                             context = context,
                             viewModel = viewModel,
@@ -189,7 +189,7 @@ private fun ContextAccordion(
                 for (sc in subContexts) {
                     val matched = grouped[sc.id] ?: continue
                     val scKey = "${context.id}/${sc.id}"
-                    val scExpanded = scKey in viewModel.expandedSubContexts
+                    val scExpanded = scKey in viewModel.explorer.expandedSubContexts
                     val scMatches =
                         viewModel.treeMatchesSearch(sc.displayName) ||
                             matched.any { viewModel.treeMatchesSearch(it.name) } ||
@@ -230,8 +230,8 @@ private fun NamespaceItem(
     viewModel: AppViewModel,
 ) {
     val key = "${context.name}/${namespace.name}"
-    val isSelected = key in viewModel.expandedNamespaces
-    val nsResources = viewModel.contextResources[key] ?: emptyMap()
+    val isSelected = key in viewModel.explorer.expandedNamespaces
+    val nsResources = viewModel.explorer.resourcesByKey[key] ?: emptyMap()
     val hasResources = nsResources.isNotEmpty()
     val totalCount = nsResources.values.sumOf { it.size }
     var showNsMenu by remember { mutableStateOf(false) }
@@ -279,9 +279,9 @@ private fun NamespaceItem(
                     modifier = Modifier.weight(1f),
                 )
                 Text(
-                    if (viewModel.isFavorite(context.id, namespace.name)) "\u2605" else "\u2606",
+                    if (viewModel.contexts.isFavorite(context.id, namespace.name)) "\u2605" else "\u2606",
                     color =
-                        if (viewModel.isFavorite(context.id, namespace.name)) {
+                        if (viewModel.contexts.isFavorite(context.id, namespace.name)) {
                             Color(context.color)
                         } else {
                             MaterialTheme.colorScheme.onSurfaceVariant
@@ -384,7 +384,7 @@ private fun FavoritesSection(
                     .fillMaxWidth()
                     .padding(start = 24.dp)
                     .clip(RoundedCornerShape(6.dp))
-                    .clickable { viewModel.toggleSubContextExpanded(context.id, -1) }
+                    .clickable { viewModel.explorer.toggleSubContext(context.id, -1) }
                     .padding(horizontal = 8.dp, vertical = 5.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -447,7 +447,7 @@ private fun SubContextFolder(
                     .fillMaxWidth()
                     .padding(start = 24.dp)
                     .clip(RoundedCornerShape(6.dp))
-                    .clickable { viewModel.toggleSubContextExpanded(context.id, subContext.id) }
+                    .clickable { viewModel.explorer.toggleSubContext(context.id, subContext.id) }
                     .padding(horizontal = 8.dp, vertical = 5.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -507,7 +507,7 @@ private fun ResourceItem(
     indent: androidx.compose.ui.unit.Dp,
 ) {
     var showMenu by remember { mutableStateOf(false) }
-    val isSelected = resource == viewModel.selectedResource
+    val isSelected = resource == viewModel.explorer.selectedResource
 
     Box {
         Row(

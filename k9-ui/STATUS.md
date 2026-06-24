@@ -78,6 +78,8 @@ A Kubernetes context viewer and manager desktop application built with Kotlin De
 - [x] Kill individual processes from UI
 - [x] Kill all processes on app close
 - [x] Process status tracking in database
+- [x] Auto-assign local ports to avoid conflicts (scans all configs + active processes, picks first free port)
+- [x] Auto-stop port forwards after timeout (per-config timeoutMinutes, checked every 10s)
 
 ### Tech Stack
 - Kotlin 2.3.21
@@ -88,8 +90,6 @@ A Kubernetes context viewer and manager desktop application built with Kotlin De
 
 ### Pending / Next Steps
 - [ ] GraalVM native image configuration
-- [ ] Auto-assign local ports to avoid conflicts
-- [ ] Auto-stop port forwards after timeout
 - [ ] kubectl context auto-discovery (list contexts from kubeconfig)
 - [ ] Improved error handling and loading states
 - [ ] Unit tests

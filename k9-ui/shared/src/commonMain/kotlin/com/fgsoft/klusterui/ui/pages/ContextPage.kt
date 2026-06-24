@@ -52,7 +52,7 @@ fun ContextPage(
         LazyColumn(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            items(viewModel.contexts) { context ->
+            items(viewModel.contexts.allContexts) { context ->
                 ContextCard(
                     context = context,
                     isActive = context.isActive,
@@ -72,7 +72,7 @@ fun ContextPage(
         val existingSubDefs =
             remember(editingCtx) {
                 editingCtx?.let { ctx ->
-                    val subs = viewModel.subContextsByContextId[ctx.id] ?: emptyList()
+                    val subs = viewModel.contexts.subContextsByContextId[ctx.id] ?: emptyList()
                     subs.map { it.regexPattern to it.displayName }
                 } ?: emptyList()
             }
@@ -86,9 +86,9 @@ fun ContextPage(
             },
             onSave = { context, subDefs ->
                 if (context.id == 0L) {
-                    viewModel.addContext(context, subDefs)
+                    viewModel.contexts.add(context, subDefs)
                 } else {
-                    viewModel.updateContext(context, subDefs)
+                    viewModel.contexts.update(context, subDefs)
                 }
                 showDialog = false
                 editContext = null

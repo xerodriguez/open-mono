@@ -13,6 +13,7 @@ data class PortForwardConfig(
     val localPort: Int,
     val customLocalPort: Boolean = false,
     val label: String = "",
+    val timeoutMinutes: Int? = null,
 )
 
 @Serializable

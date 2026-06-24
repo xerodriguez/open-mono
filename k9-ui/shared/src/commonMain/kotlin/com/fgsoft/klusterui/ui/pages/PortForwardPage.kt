@@ -17,6 +17,7 @@ import com.fgsoft.klusterui.model.ResourceType
 import com.fgsoft.klusterui.model.formatTimestamp
 import com.fgsoft.klusterui.ui.AppViewModel
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PortForwardPage(
     viewModel: AppViewModel,
@@ -26,9 +27,10 @@ fun PortForwardPage(
     var editConfig by remember { mutableStateOf<PortForwardConfig?>(null) }
 
     Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(16.dp),
+        modifier =
+            modifier
+                .fillMaxSize()
+                .padding(16.dp),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -40,12 +42,13 @@ fun PortForwardPage(
                 style = MaterialTheme.typography.headlineMedium,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (viewModel.activePortForwardProcesses.isNotEmpty()) {
+                if (viewModel.portForward.activeProcesses.isNotEmpty()) {
                     OutlinedButton(
-                        onClick = { viewModel.killAllPortForwards() },
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = MaterialTheme.colorScheme.error,
-                        ),
+                        onClick = { viewModel.portForward.killAll() },
+                        colors =
+                            ButtonDefaults.outlinedButtonColors(
+                                contentColor = MaterialTheme.colorScheme.error,
+                            ),
                     ) {
                         Text("Stop All")
                     }
@@ -76,7 +79,7 @@ fun PortForwardPage(
             verticalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.weight(0.3f),
         ) {
-            if (viewModel.activePortForwardProcesses.isEmpty()) {
+            if (viewModel.portForward.activeProcesses.isEmpty()) {
                 item {
                     Text(
                         "No active port forwards",
@@ -86,10 +89,10 @@ fun PortForwardPage(
                     )
                 }
             }
-            items(viewModel.activePortForwardProcesses) { process ->
+            items(viewModel.portForward.activeProcesses) { process ->
                 ActiveProcessCard(
                     process = process,
-                    onStop = { viewModel.stopPortForward(process.id) },
+                    onStop = { viewModel.portForward.stop(process.id) },
                 )
             }
         }
@@ -102,7 +105,7 @@ fun PortForwardPage(
             verticalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.weight(0.7f),
         ) {
-            if (viewModel.portForwardConfigs.isEmpty()) {
+            if (viewModel.portForward.configs.isEmpty()) {
                 item {
                     Text(
                         "No saved configurations",
@@ -112,8 +115,8 @@ fun PortForwardPage(
                     )
                 }
             }
-            items(viewModel.portForwardConfigs) { config ->
-                val isRunning = viewModel.activePortForwardProcesses.any { it.configId == config.id }
+            items(viewModel.portForward.configs) { config ->
+                val isRunning = viewModel.portForward.activeProcesses.any { it.configId == config.id }
                 PortForwardConfigCard(
                     config = config,
                     isRunning = isRunning,
@@ -121,11 +124,14 @@ fun PortForwardPage(
                         viewModel.startPortForward(config, "${config.resourceType}/${config.resourceName}")
                     },
                     onStop = {
-                        viewModel.activePortForwardProcesses
+                        viewModel.portForward.activeProcesses
                             .filter { it.configId == config.id }
-                            .forEach { viewModel.stopPortForward(it.id) }
+                            .forEach { viewModel.portForward.stop(it.id) }
                     },
-                    onEdit = { editConfig = config; showDialog = true },
+                    onEdit = {
+                        editConfig = config
+                        showDialog = true
+                    },
                     onDelete = { viewModel.deletePortForwardConfig(config.id) },
                 )
             }
@@ -135,11 +141,19 @@ fun PortForwardPage(
     if (showDialog) {
         PortForwardDialog(
             config = editConfig,
+            contextId = viewModel.activeContext?.id ?: 0,
             basePort = viewModel.activeContext?.portForwardBasePort ?: 8000,
-            onDismiss = { showDialog = false; editConfig = null },
+            findAvailablePort = { viewModel.findAvailableLocalPort(contextId = viewModel.activeContext?.id ?: 0, desiredPort = it) },
+            onDismiss = {
+                showDialog = false
+                editConfig = null
+            },
             onSave = { config ->
-                if (config.id == 0L) viewModel.addPortForwardConfig(config)
-                else viewModel.updatePortForwardConfig(config)
+                if (config.id == 0L) {
+                    viewModel.portForward.addConfig(config)
+                } else {
+                    viewModel.portForward.updateConfig(config)
+                }
                 showDialog = false
                 editConfig = null
             },
@@ -148,13 +162,17 @@ fun PortForwardPage(
 }
 
 @Composable
-private fun ActiveProcessCard(process: PortForwardProcess, onStop: () -> Unit) {
+private fun ActiveProcessCard(
+    process: PortForwardProcess,
+    onStop: () -> Unit,
+) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer,
-        ),
+        colors =
+            CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+            ),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(12.dp),
@@ -224,6 +242,13 @@ private fun PortForwardConfigCard(
                 if (config.label.isNotEmpty()) {
                     Text(config.label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+                if (config.timeoutMinutes != null) {
+                    Text(
+                        "\u23F1 ${config.timeoutMinutes}m",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             if (isRunning) {
                 TextButton(
@@ -242,10 +267,13 @@ private fun PortForwardConfigCard(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PortForwardDialog(
     config: PortForwardConfig?,
+    contextId: Long,
     basePort: Int,
+    findAvailablePort: (Int) -> Int,
     onDismiss: () -> Unit,
     onSave: (PortForwardConfig) -> Unit,
 ) {
@@ -256,6 +284,16 @@ private fun PortForwardDialog(
     var localPort by remember { mutableStateOf(config?.localPort?.toString() ?: "") }
     var customPort by remember { mutableStateOf(config?.customLocalPort ?: false) }
     var label by remember { mutableStateOf(config?.label ?: "") }
+    var timeoutMinutes by remember { mutableStateOf(config?.timeoutMinutes) }
+
+    LaunchedEffect(remotePort, customPort) {
+        if (!customPort) {
+            val rp = remotePort.toIntOrNull()
+            if (rp != null) {
+                localPort = findAvailablePort(basePort + rp).toString()
+            }
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -265,15 +303,71 @@ private fun PortForwardDialog(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                OutlinedTextField(value = namespace, onValueChange = { namespace = it }, label = { Text("Namespace") }, singleLine = true, modifier = Modifier.width(300.dp))
-                OutlinedTextField(value = resourceType, onValueChange = { resourceType = it }, label = { Text("Resource Type (pod, svc, deploy)") }, singleLine = true, modifier = Modifier.width(300.dp))
-                OutlinedTextField(value = resourceName, onValueChange = { resourceName = it }, label = { Text("Resource Name") }, singleLine = true, modifier = Modifier.width(300.dp))
-                OutlinedTextField(value = remotePort, onValueChange = { remotePort = it }, label = { Text("Remote Port") }, singleLine = true, modifier = Modifier.width(300.dp))
+                OutlinedTextField(value = namespace, onValueChange = {
+                    namespace = it
+                }, label = { Text("Namespace") }, singleLine = true, modifier = Modifier.width(300.dp))
+                OutlinedTextField(value = resourceType, onValueChange = {
+                    resourceType = it
+                }, label = { Text("Resource Type (pod, svc, deploy)") }, singleLine = true, modifier = Modifier.width(300.dp))
+                OutlinedTextField(value = resourceName, onValueChange = {
+                    resourceName = it
+                }, label = { Text("Resource Name") }, singleLine = true, modifier = Modifier.width(300.dp))
+                OutlinedTextField(value = remotePort, onValueChange = {
+                    remotePort = it
+                }, label = { Text("Remote Port") }, singleLine = true, modifier = Modifier.width(300.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedTextField(value = localPort, onValueChange = { localPort = it }, label = { Text("Local Port") }, singleLine = true, modifier = Modifier.weight(1f))
+                    OutlinedTextField(
+                        value = localPort,
+                        onValueChange = { if (customPort) localPort = it },
+                        label = { Text("Local Port") },
+                        singleLine = true,
+                        enabled = customPort,
+                        modifier = Modifier.weight(1f),
+                    )
                     TextButton(onClick = { customPort = !customPort }) { Text(if (customPort) "Auto" else "Custom") }
                 }
-                OutlinedTextField(value = label, onValueChange = { label = it }, label = { Text("Label (optional)") }, singleLine = true, modifier = Modifier.width(300.dp))
+                OutlinedTextField(value = label, onValueChange = {
+                    label = it
+                }, label = { Text("Label (optional)") }, singleLine = true, modifier = Modifier.width(300.dp))
+
+                var timeoutDropdownExpanded by remember { mutableStateOf(false) }
+                val timeoutOptions =
+                    listOf(
+                        null to "No timeout",
+                        5 to "5 min",
+                        10 to "10 min",
+                        15 to "15 min",
+                        30 to "30 min",
+                        60 to "60 min",
+                    )
+                ExposedDropdownMenuBox(
+                    expanded = timeoutDropdownExpanded,
+                    onExpandedChange = { timeoutDropdownExpanded = it },
+                    modifier = Modifier.width(300.dp),
+                ) {
+                    OutlinedTextField(
+                        value = timeoutOptions.firstOrNull { it.first == timeoutMinutes }?.second ?: "No timeout",
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Auto-stop timeout") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = timeoutDropdownExpanded) },
+                        modifier = Modifier.menuAnchor().fillMaxWidth(),
+                    )
+                    ExposedDropdownMenu(
+                        expanded = timeoutDropdownExpanded,
+                        onDismissRequest = { timeoutDropdownExpanded = false },
+                    ) {
+                        timeoutOptions.forEach { (minutes, label) ->
+                            DropdownMenuItem(
+                                text = { Text(label) },
+                                onClick = {
+                                    timeoutMinutes = minutes
+                                    timeoutDropdownExpanded = false
+                                },
+                            )
+                        }
+                    }
+                }
             }
         },
         confirmButton = {
@@ -284,15 +378,16 @@ private fun PortForwardDialog(
                     onSave(
                         PortForwardConfig(
                             id = config?.id ?: 0,
-                            contextId = config?.contextId ?: 0,
+                            contextId = config?.contextId ?: contextId,
                             namespace = namespace,
                             resourceType = resourceType,
                             resourceName = resourceName,
                             remotePort = rp,
-                            localPort = if (customPort) lp else basePort + rp,
+                            localPort = if (customPort) lp else findAvailablePort(basePort + rp),
                             customLocalPort = customPort,
                             label = label,
-                        )
+                            timeoutMinutes = timeoutMinutes,
+                        ),
                     )
                 },
                 enabled = namespace.isNotBlank() && resourceType.isNotBlank() && resourceName.isNotBlank() && remotePort.isNotBlank(),
