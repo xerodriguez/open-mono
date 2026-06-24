@@ -7,8 +7,7 @@ plugins {
 
 kotlin {
     jvm()
-    
-    
+
     sourceSets {
         commonMain.dependencies {
             implementation(libs.compose.runtime)
@@ -27,6 +26,10 @@ kotlin {
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
+        }
+        jvmTest.dependencies {
+            implementation(libs.sqlite.jdbc)
+            implementation(libs.kotlinx.coroutines.test)
         }
     }
 }

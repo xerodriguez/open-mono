@@ -9,6 +9,7 @@ import com.fgsoft.klusterui.model.KubeContext
 import com.fgsoft.klusterui.model.KubeResource
 import com.fgsoft.klusterui.model.NamespaceInfo
 import com.fgsoft.klusterui.model.ResourceType
+import com.fgsoft.klusterui.model.currentTimeMillis
 import com.fgsoft.klusterui.ui.store.ContextStore
 import com.fgsoft.klusterui.ui.store.ExplorerStore
 import com.fgsoft.klusterui.ui.store.LogsStore
@@ -161,6 +162,32 @@ class AppViewModel(
         portForward.start(config, podName, ctx.context)
     }
 
+    fun findAvailableLocalPort(
+        contextId: Long,
+        desiredPort: Int,
+    ): Int {
+        val usedPorts =
+            (
+                portForward.configs.map { it.localPort } +
+                    portForward.activeProcesses.map { it.localPort }
+            ).toSet()
+        var port = desiredPort
+        while (port in usedPorts) port++
+        return port
+    }
+
+    internal fun checkPortForwardTimeouts() {
+        val now = currentTimeMillis()
+        portForward.activeProcesses.forEach { process ->
+            val config = portForward.configs.find { it.id == process.configId }
+            val timeout = config?.timeoutMinutes ?: return@forEach
+            val elapsed = (now - process.startedAt) / 60_000
+            if (elapsed >= timeout) {
+                portForward.stop(process.id)
+            }
+        }
+    }
+
     init {
         loadContexts()
         startRefreshTimer()
@@ -173,6 +200,7 @@ class AppViewModel(
             while (true) {
                 delay(10_000)
                 refreshActiveContextData()
+                checkPortForwardTimeouts()
             }
         }
     }

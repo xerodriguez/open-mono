@@ -74,6 +74,14 @@ class JvmDatabase(
                 """.trimIndent(),
             )
 
+            try {
+                stmt.executeUpdate(
+                    "ALTER TABLE port_forward_configs ADD COLUMN timeout_minutes INTEGER",
+                )
+            } catch (_: Exception) {
+                // Column already exists, skip
+            }
+
             stmt.executeUpdate(
                 """
                 CREATE TABLE IF NOT EXISTS sub_contexts (
@@ -240,7 +248,7 @@ class JvmDatabase(
     override fun getAllPortForwardConfigs(): List<PortForwardConfig> =
         requireConnection()
             .prepareStatement(
-                "SELECT id, context_id, namespace, resource_type, resource_name, remote_port, local_port, custom_local_port, label FROM port_forward_configs",
+                "SELECT id, context_id, namespace, resource_type, resource_name, remote_port, local_port, custom_local_port, label, timeout_minutes FROM port_forward_configs",
             ).use { stmt ->
                 stmt.executeQuery().use { rs ->
                     buildList {
@@ -256,6 +264,7 @@ class JvmDatabase(
                                     localPort = rs.getInt("local_port"),
                                     customLocalPort = rs.getInt("custom_local_port") != 0,
                                     label = rs.getString("label"),
+                                    timeoutMinutes = rs.getObject("timeout_minutes") as? Int,
                                 ),
                             )
                         }
@@ -266,7 +275,7 @@ class JvmDatabase(
     override fun getPortForwardConfigsForContext(contextId: Long): List<PortForwardConfig> =
         requireConnection()
             .prepareStatement(
-                "SELECT id, context_id, namespace, resource_type, resource_name, remote_port, local_port, custom_local_port, label FROM port_forward_configs WHERE context_id = ?",
+                "SELECT id, context_id, namespace, resource_type, resource_name, remote_port, local_port, custom_local_port, label, timeout_minutes FROM port_forward_configs WHERE context_id = ?",
             ).use { stmt ->
                 stmt.setLong(1, contextId)
                 stmt.executeQuery().use { rs ->
@@ -283,6 +292,7 @@ class JvmDatabase(
                                     localPort = rs.getInt("local_port"),
                                     customLocalPort = rs.getInt("custom_local_port") != 0,
                                     label = rs.getString("label"),
+                                    timeoutMinutes = rs.getObject("timeout_minutes") as? Int,
                                 ),
                             )
                         }
@@ -293,7 +303,7 @@ class JvmDatabase(
     override fun insertPortForwardConfig(config: PortForwardConfig): Long =
         requireConnection()
             .prepareStatement(
-                "INSERT INTO port_forward_configs (context_id, namespace, resource_type, resource_name, remote_port, local_port, custom_local_port, label) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO port_forward_configs (context_id, namespace, resource_type, resource_name, remote_port, local_port, custom_local_port, label, timeout_minutes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             ).use { stmt ->
                 stmt.setLong(1, config.contextId)
                 stmt.setString(2, config.namespace)
@@ -303,6 +313,11 @@ class JvmDatabase(
                 stmt.setInt(6, config.localPort)
                 stmt.setInt(7, if (config.customLocalPort) 1 else 0)
                 stmt.setString(8, config.label)
+                if (config.timeoutMinutes != null) {
+                    stmt.setInt(9, config.timeoutMinutes)
+                } else {
+                    stmt.setNull(9, java.sql.Types.INTEGER)
+                }
                 stmt.executeUpdate()
                 stmt.generatedKeys.use { keys ->
                     if (keys.next()) keys.getLong(1) else -1
@@ -312,7 +327,7 @@ class JvmDatabase(
     override fun updatePortForwardConfig(config: PortForwardConfig) {
         requireConnection()
             .prepareStatement(
-                "UPDATE port_forward_configs SET context_id = ?, namespace = ?, resource_type = ?, resource_name = ?, remote_port = ?, local_port = ?, custom_local_port = ?, label = ? WHERE id = ?",
+                "UPDATE port_forward_configs SET context_id = ?, namespace = ?, resource_type = ?, resource_name = ?, remote_port = ?, local_port = ?, custom_local_port = ?, label = ?, timeout_minutes = ? WHERE id = ?",
             ).use { stmt ->
                 stmt.setLong(1, config.contextId)
                 stmt.setString(2, config.namespace)
@@ -322,7 +337,12 @@ class JvmDatabase(
                 stmt.setInt(6, config.localPort)
                 stmt.setInt(7, if (config.customLocalPort) 1 else 0)
                 stmt.setString(8, config.label)
-                stmt.setLong(9, config.id)
+                if (config.timeoutMinutes != null) {
+                    stmt.setInt(9, config.timeoutMinutes)
+                } else {
+                    stmt.setNull(9, java.sql.Types.INTEGER)
+                }
+                stmt.setLong(10, config.id)
                 stmt.executeUpdate()
             }
     }

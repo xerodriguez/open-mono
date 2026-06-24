@@ -142,8 +142,8 @@ private fun SidebarPortForwardDialog(
     onDismiss: () -> Unit,
 ) {
     val basePort = viewModel.activeContext?.portForwardBasePort ?: 8000
-    val defaultLocalPort = basePort + 80
-    val localPort = remember { mutableStateOf(defaultLocalPort.toString()) }
+    val availablePort = viewModel.findAvailableLocalPort(viewModel.activeContext?.id ?: 0, basePort + 80)
+    val localPort = remember { mutableStateOf(availablePort.toString()) }
 
     AlertDialog(
         onDismissRequest = onDismiss,

@@ -17,6 +17,7 @@ import com.fgsoft.klusterui.model.ResourceType
 import com.fgsoft.klusterui.model.formatTimestamp
 import com.fgsoft.klusterui.ui.AppViewModel
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PortForwardPage(
     viewModel: AppViewModel,
@@ -140,7 +141,9 @@ fun PortForwardPage(
     if (showDialog) {
         PortForwardDialog(
             config = editConfig,
+            contextId = viewModel.activeContext?.id ?: 0,
             basePort = viewModel.activeContext?.portForwardBasePort ?: 8000,
+            findAvailablePort = { viewModel.findAvailableLocalPort(contextId = viewModel.activeContext?.id ?: 0, desiredPort = it) },
             onDismiss = {
                 showDialog = false
                 editConfig = null
@@ -239,6 +242,13 @@ private fun PortForwardConfigCard(
                 if (config.label.isNotEmpty()) {
                     Text(config.label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+                if (config.timeoutMinutes != null) {
+                    Text(
+                        "\u23F1 ${config.timeoutMinutes}m",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             if (isRunning) {
                 TextButton(
@@ -257,10 +267,13 @@ private fun PortForwardConfigCard(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PortForwardDialog(
     config: PortForwardConfig?,
+    contextId: Long,
     basePort: Int,
+    findAvailablePort: (Int) -> Int,
     onDismiss: () -> Unit,
     onSave: (PortForwardConfig) -> Unit,
 ) {
@@ -271,6 +284,16 @@ private fun PortForwardDialog(
     var localPort by remember { mutableStateOf(config?.localPort?.toString() ?: "") }
     var customPort by remember { mutableStateOf(config?.customLocalPort ?: false) }
     var label by remember { mutableStateOf(config?.label ?: "") }
+    var timeoutMinutes by remember { mutableStateOf(config?.timeoutMinutes) }
+
+    LaunchedEffect(remotePort, customPort) {
+        if (!customPort) {
+            val rp = remotePort.toIntOrNull()
+            if (rp != null) {
+                localPort = findAvailablePort(basePort + rp).toString()
+            }
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -293,14 +316,58 @@ private fun PortForwardDialog(
                     remotePort = it
                 }, label = { Text("Remote Port") }, singleLine = true, modifier = Modifier.width(300.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedTextField(value = localPort, onValueChange = {
-                        localPort = it
-                    }, label = { Text("Local Port") }, singleLine = true, modifier = Modifier.weight(1f))
+                    OutlinedTextField(
+                        value = localPort,
+                        onValueChange = { if (customPort) localPort = it },
+                        label = { Text("Local Port") },
+                        singleLine = true,
+                        enabled = customPort,
+                        modifier = Modifier.weight(1f),
+                    )
                     TextButton(onClick = { customPort = !customPort }) { Text(if (customPort) "Auto" else "Custom") }
                 }
                 OutlinedTextField(value = label, onValueChange = {
                     label = it
                 }, label = { Text("Label (optional)") }, singleLine = true, modifier = Modifier.width(300.dp))
+
+                var timeoutDropdownExpanded by remember { mutableStateOf(false) }
+                val timeoutOptions =
+                    listOf(
+                        null to "No timeout",
+                        5 to "5 min",
+                        10 to "10 min",
+                        15 to "15 min",
+                        30 to "30 min",
+                        60 to "60 min",
+                    )
+                ExposedDropdownMenuBox(
+                    expanded = timeoutDropdownExpanded,
+                    onExpandedChange = { timeoutDropdownExpanded = it },
+                    modifier = Modifier.width(300.dp),
+                ) {
+                    OutlinedTextField(
+                        value = timeoutOptions.firstOrNull { it.first == timeoutMinutes }?.second ?: "No timeout",
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Auto-stop timeout") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = timeoutDropdownExpanded) },
+                        modifier = Modifier.menuAnchor().fillMaxWidth(),
+                    )
+                    ExposedDropdownMenu(
+                        expanded = timeoutDropdownExpanded,
+                        onDismissRequest = { timeoutDropdownExpanded = false },
+                    ) {
+                        timeoutOptions.forEach { (minutes, label) ->
+                            DropdownMenuItem(
+                                text = { Text(label) },
+                                onClick = {
+                                    timeoutMinutes = minutes
+                                    timeoutDropdownExpanded = false
+                                },
+                            )
+                        }
+                    }
+                }
             }
         },
         confirmButton = {
@@ -311,14 +378,15 @@ private fun PortForwardDialog(
                     onSave(
                         PortForwardConfig(
                             id = config?.id ?: 0,
-                            contextId = config?.contextId ?: 0,
+                            contextId = config?.contextId ?: contextId,
                             namespace = namespace,
                             resourceType = resourceType,
                             resourceName = resourceName,
                             remotePort = rp,
-                            localPort = if (customPort) lp else basePort + rp,
+                            localPort = if (customPort) lp else findAvailablePort(basePort + rp),
                             customLocalPort = customPort,
                             label = label,
+                            timeoutMinutes = timeoutMinutes,
                         ),
                     )
                 },
